@@ -1,77 +1,225 @@
 use anchor_lang::prelude::*;
+use anchor_spl::{
+    token::{Mint as InterfaceMint, Token, TokenAccount,},
+    associated_token::AssociatedToken,
+};
 
 declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
 
+pub mod state;
+pub mod error;
+use error::*;
+use state::*;
+
 #[program]
 pub mod orderbook {
+    use anchor_spl::token::Transfer;
+
     use super::*;
 
-    pub fn initialise_market(_ctx: Context<InitializeMarket>) -> Result<()> {
-        msg!("GM!");
+    pub fn initialise_market(
+        ctx: Context<InitializeMarket>,
+        base_lot_size: u64,
+        quote_lot_size: u64,
+        maker_fees_bps: u64,
+        taker_fees_bps: u64,
+    ) -> Result<()> {
+        msg!("Initialise market hit...!");
+
+        let market = &mut ctx.accounts.market;
+
+        // Admin and tokens
+        market.admin = ctx.accounts.admin.key();
+        market.base_mint = ctx.accounts.base_mint.key();
+        market.quote_mint = ctx.accounts.quote_mint.key();
+
+        // On-chain orderbook accounts
+        market.bids = ctx.accounts.bids.key();
+        market.asks = ctx.accounts.asks.key();
+        market.event_queue = ctx.accounts.event_queue.key();
+
+        // Vaults
+        market.base_vault = ctx.accounts.base_vault.key();
+        market.quote_vault = ctx.accounts.quote_vault.key();
+
+        // Lot sizes
+        market.base_lot_size = base_lot_size;
+        market.quote_lot_size = quote_lot_size;
+
+        // Fees
+        market.maker_fees_bps = maker_fees_bps;
+        market.taker_fees_bps = taker_fees_bps;
+
+        // Vault signer nonce
+        market.vault_signer_nonce = ctx.bumps.vault_signer;
+
+        // Market defaults
+        market.market_status = 1; // Active
+        market.max_orders_per_user = 100;
+        market.min_order_size = base_lot_size;
+
         Ok(())
     }
+    pub fn place_order(
+        ctx: Context<PlaceOrder>,
+        max_quote_size:u64,
+        max_base_size:u64,
+        client_order_id:u64,
+        price:u64,
+        order_type:OrderType,
+        side:Side
+    )-> Result<()>{
+        let user_quote_vault = &mut ctx.accounts.user_base_vault;
+        let market = &mut ctx.accounts.market;
+        let open_order = &mut ctx.accounts.open_order;
+        require!(market.market_status == 1 , MarketError::MarketActiveError);
+    
+        require!(max_base_size >= market.min_order_size,MarketError::MarketOrderSizeError);
+        
+        let base_lots = max_base_size / market.base_lot_size;
+        let quote_lots = max_quote_size/market.quote_lot_size;
+        match side {
+            Side::Bid => {
+                let amount_to_lock = price
+                                .checked_mul(base_lots)
+                                .unwrap()
+                                .checked_mul(market.quote_lot_size)
+                                .unwrap();
+
+                anchor_spl::token::transfer(
+                    CpiContext::new(ctx.accounts.token_program.to_account_info(),{
+                        anchor_spl::token::Transfer {
+                            from:ctx.accounts.user_quote_vault.to_account_info(),
+                            to:ctx.accounts.quote_vault.to_account_info(),
+                            authority:ctx.accounts.owner.to_account_info(),
+                        }
+                    }),
+                    amount_to_lock
+                )?;
+                open_order.quote_locked += amount_to_lock;
+            },
+            Side::Ask => {
+                let amount_to_lock = price
+                                    .checked_mul(market.base_lot_size)
+                                    .unwrap();
+                anchor_spl::token::transfer(
+                   CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    {
+                        anchor_spl::token::Transfer {
+                            from:ctx.accounts.user_base_vault.to_account_info(),
+                            to:ctx.accounts.base_vault.to_account_info(),
+                            authority:ctx.accounts.owner.to_account_info()
+                        }
+                    }),
+                    amount_to_lock
+                )?;
+                open_order.base_locked += amount_to_lock;
+            }
+        }
+
+        let slab = match side {
+            Side::Ask => &mut ctx.accounts.asks,
+            Side::Bid => &mut ctx.accounts.bids
+        };
+        let order_id = Clock::get()?.unix_timestamp as u128;
+        
+        Ok(())
+    }
+
 }
 
 #[derive(Accounts)]
-pub struct  InitializeMarket<'info> {
-    #[account(init, payer = admin , space = 8 + Market::INIT_SPACE)]
-    pub market : Account<'info,Market>,
+pub struct InitializeMarket<'info> {
+    // Market account
+    #[account(init, payer = admin, space = 8 + Market::INIT_SPACE)]
+    pub market: Account<'info, Market>,
 
-    #[account(init,payer = admin , space = 8 + Slab::INIT_SPACE)]
-    pub bids : Account<'info,Slab>,
+    // Orderbook slabs
+    #[account(init, payer = admin, space = 8 + Slab::INIT_SPACE)]
+    pub bids: Account<'info, Slab>,
+
+    #[account(init, payer = admin, space = 8 + Slab::INIT_SPACE)]
+    pub asks: Account<'info, Slab>,
+
+    // Event queue
+    #[account(init, payer = admin, space = 8 + EventQueue::INIT_SPACE)]
+    pub event_queue: Account<'info, EventQueue>,
+
+    // Vault token accounts (program-controlled)
+    #[account(
+        init,
+        payer = admin,
+        token::mint = base_mint,
+        token::authority = vault_signer
+    )]
+    pub base_vault: Account<'info, TokenAccount>,
+
+    #[account(
+        init,
+        payer = admin,
+        token::mint = quote_mint,
+        token::authority = vault_signer
+    )]
+    pub quote_vault: Account<'info, TokenAccount>,
+
+    // PDA that can manage vaults
+    #[account(
+        seeds = [b"vault_signer", market.key().as_ref()],
+        bump
+    )]
+    pub vault_signer: UncheckedAccount<'info>,
+
+    // Admin signing the transaction
     #[account(mut)]
-    pub admin : Signer<'info>,
-    pub system_program : Program<'info,System>
+    pub admin: Signer<'info>,
+
+    // Token mints
+    pub base_mint: Account<'info, InterfaceMint>,
+    pub quote_mint: Account<'info, InterfaceMint>,
+
+    // Programs
+    pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
-#[account]
-#[derive(InitSpace)]
-pub struct Market {
-    pub base_mint: Pubkey,          // Mint of base token (e.g., SOL)
-    pub quote_mint: Pubkey,         // Mint of quote token (e.g., USDC)
-    
-    pub base_vault: Pubkey,         // Vault for base token escrow
-    pub quote_vault: Pubkey,        // Vault for quote token escrow
+ #[derive(Accounts)]
+ pub struct  PlaceOrder<'info> {
+    #[account(mut)]
+    pub market:Account<'info,Market>,
 
-    pub bids: Pubkey,               // Slab account holding bid orders
-    pub asks: Pubkey,               // Slab account holding ask orders
-    pub event_queue: Pubkey,        // Event queue account
+    #[account(mut)]
+    pub asks:Account<'info,Slab>,
 
-    pub base_lot_size: u64,         // Smallest tradeable amount in base token (like 0.0001 SOL)
-    pub quote_lot_size: u64,        // Smallest price unit in quote token
+    #[account(mut)]
+    pub bids:Account<'info,Slab>,
 
-    pub fee_rate_bps: u16,          // Fee in basis points (e.g., 20 = 0.2%)
-    pub admin: Pubkey,              // Authority who can update market params
+    #[account(
+        mut,
+        seeds = [b"open_order",market.key().as_ref(),owner.key().as_ref()],
+        bump,
+        has_one = owner,
+        has_one = market
+    )]
+    pub open_order:Account<'info,OpenOrders>,
 
-    pub vault_signer_nonce: u8,     // Nonce for vault PDA derivation
-    pub market_status: u8,          // 0 = inactive, 1 = active, 2 = paused
+    #[account(mut)]
+    pub quote_vault:Account<'info,TokenAccount>, //market quote vault
+    #[account(mut)]
+    pub base_vault:Account<'info,TokenAccount>, //market base vault
 
-    pub min_order_size: u64,        // Minimum order size in base lots
-    pub max_orders_per_user: u16,   // Limits spamming orders
+    #[account(
+        mut,
+        constraint = user_base_vault.owner == owner.key()
+    )]
+    pub user_base_vault:Account<'info,TokenAccount>,
+    #[account(
+        mut,
+        constraint = user_quote_vault.owner == owner.key()
+    )]
+    pub user_quote_vault:Account<'info,TokenAccount>,
 
-    pub padding: [u8; 64],          // Reserved space for future upgrades
-}
-
-
-#[account]
-#[derive(InitSpace)]
-pub struct Slab {
-    pub head_index : u32,   // Index of the first free slot
-    pub free_list_len : u32,   // Number of free slots available
-    pub leaf_count : u32,
-    #[max_len(1024)] 
-    pub nodes:Vec<Node>    //dynamic array
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone,InitSpace)]
-pub struct Node {
-    pub price: u64,            // Price scaled by quote lot size
-    pub quantity: u64,         // Quantity in base lots
-    pub owner: Pubkey,         // User who placed the order
-    pub client_order_id: u64,  // Optional client reference
-    pub timestamp: i64,        // Unix timestamp of order placement
-
-    pub next: u32,             // Next node index (linked list)
-    pub prev: u32,             // Previous node index
-}
-
+    pub owner : Signer<'info>,
+    pub token_program:Program<'info,Token>
+ }
