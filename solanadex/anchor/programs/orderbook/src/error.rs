@@ -18,5 +18,9 @@ pub enum MarketError {
     MarketActiveError,
     #[msg("Max base size should be greater than minimum order size!")]
     MarketOrderSizeError,
+    #[msg("Value overflowed!")]
+    MathOverflow,
+    #[msg("No orders")]
+    NoOrders
 }
 

@@ -3,9 +3,9 @@ use std::u32;
 
 use anchor_lang::prelude::*;
 
-use crate::state::{ Node, OpenOrders, Slab, Order};
-use crate::error::OrderError;
-
+use crate::state::{ Market, Node, OpenOrders, Order, Slab};
+use crate::error::{MarketError, OrderError};
+use crate::events::*;
 impl Slab {
     pub fn insert_order (
         &mut self,
@@ -91,7 +91,7 @@ impl Slab {
 }
 
 impl OpenOrders {
-    fn push_order(&mut self, order:Order)-> Result<()> {
+    pub fn push_order(&mut self, order:Order)-> Result<()> {
         
         if self.orders.len() >= 1024 {
             msg!("Orders full!");
@@ -101,4 +101,38 @@ impl OpenOrders {
         self.orders_count += 1;
         Ok(())
     }
+}
+
+pub fn match_orders (
+    asks:&mut Slab,
+    bids:&mut Slab,
+)->Result<()>{
+   while !bids.nodes.is_empty() && !asks.nodes.is_empty(){
+       let best_ask = asks.nodes.first().ok_or(MarketError::NoOrders);
+       let best_bid = bids.nodes.first().ok_or(MarketError::NoOrders);
+       msg!("  price: {}", best_ask.unwrap().price);
+       if best_ask.unwrap().price > best_bid.unwrap().price {
+        break;
+       }
+       let fill_qty = std::cmp::min(best_ask.unwrap().quantity, best_bid.unwrap().quantity);
+       let fill_price = best_ask.unwrap().price;
+       emit!(OrderFilledEvent {
+        maker:best_ask.unwrap().owner,
+        taker:best_bid.unwrap().owner,
+        price:fill_price,
+        quantity:fill_qty
+       });
+       asks.nodes[0].quantity -= fill_qty;
+       bids.nodes[0].quantity += fill_qty;
+       
+       if bids.nodes[0].quantity == 0 {
+        bids.nodes.remove(0);
+        bids.leaf_count -= 1;
+    }
+    if asks.nodes[0].quantity == 0 {
+        asks.nodes.remove(0);
+        asks.leaf_count -= 1;
+    }
+   }
+    Ok(())
 }

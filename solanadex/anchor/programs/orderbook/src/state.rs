@@ -77,8 +77,7 @@ pub struct Event {
     pub timestamp : u64
 }
 
-
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy)]
+#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,InitSpace)]
 pub enum OrderType {
     Limit,
     ImmediateOrCancel,
@@ -94,12 +93,14 @@ pub struct OpenOrders {
     pub base_locked: u64,
     pub quote_free: u64,
     pub quote_locked: u64,
-    pub orders: [Order; 32], // Max orders
+    #[max_len(1024)] // Max orders
+    pub orders: Vec<Order>, 
     pub orders_count: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
 pub struct Order {
+    pub order_type:OrderType,
     pub order_id: u128,
     pub side: Side,
     pub price: u64,

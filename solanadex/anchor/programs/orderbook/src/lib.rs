@@ -8,13 +8,16 @@ declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
 
 pub mod state;
 pub mod error;
+pub mod helpers;
+pub mod events;
+use events::*;
+use helpers::*;
 use error::*;
 use state::*;
 
 #[program]
 pub mod orderbook {
     use anchor_spl::token::Transfer;
-
     use super::*;
 
     pub fn initialise_market(
@@ -69,22 +72,21 @@ pub mod orderbook {
         order_type:OrderType,
         side:Side
     )-> Result<()>{
-        let user_quote_vault = &mut ctx.accounts.user_base_vault;
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
         require!(market.market_status == 1 , MarketError::MarketActiveError);
     
         require!(max_base_size >= market.min_order_size,MarketError::MarketOrderSizeError);
-        
+         
         let base_lots = max_base_size / market.base_lot_size;
-        let quote_lots = max_quote_size/market.quote_lot_size;
+
         match side {
             Side::Bid => {
                 let amount_to_lock = price
                                 .checked_mul(base_lots)
-                                .unwrap()
+                                .ok_or(MarketError::MathOverflow)?
                                 .checked_mul(market.quote_lot_size)
-                                .unwrap();
+                                .ok_or(MarketError::MathOverflow)?;
 
                 anchor_spl::token::transfer(
                     CpiContext::new(ctx.accounts.token_program.to_account_info(),{
@@ -99,9 +101,9 @@ pub mod orderbook {
                 open_order.quote_locked += amount_to_lock;
             },
             Side::Ask => {
-                let amount_to_lock = price
+                let amount_to_lock = base_lots
                                     .checked_mul(market.base_lot_size)
-                                    .unwrap();
+                                    .ok_or(MarketError::MathOverflow)?;
                 anchor_spl::token::transfer(
                    CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
@@ -117,16 +119,23 @@ pub mod orderbook {
                 open_order.base_locked += amount_to_lock;
             }
         }
-
         let slab = match side {
             Side::Ask => &mut ctx.accounts.asks,
             Side::Bid => &mut ctx.accounts.bids
         };
         let order_id = Clock::get()?.unix_timestamp as u128;
-        
+        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price);
+        let created_order = Order {
+            order_type,
+            side,
+            quantity:base_lots,
+            order_id,
+            client_order_id,
+            price
+        };
+        OpenOrders::push_order(&mut ctx.accounts.open_order,created_order);
         Ok(())
     }
-
 }
 
 #[derive(Accounts)]
