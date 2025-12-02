@@ -44,7 +44,7 @@ pub struct Slab {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone,InitSpace)]
 pub struct Node {
     pub price: u64,            // Price scaled by quote lot size
-    pub quantity: u64,         // Quantity in base lots
+    pub quantity: u64,         // unfilled qty
     pub owner: Pubkey,         // User who placed the order
     pub client_order_id: u64,  // Optional client reference
     pub timestamp: i64,        // Unix timestamp of order placement
@@ -56,9 +56,9 @@ pub struct Node {
 #[account]
 #[derive(InitSpace)]
 pub struct EventQueue {
-    pub tail : u32,    // oldest unread event
-    pub header : u32,  // next write index
-    pub count : u32 , // tells the length of the queue
+    pub tail : u32,     // oldest unread event
+    pub header : u32,   // next write index
+    pub count : u32 ,   // tells the length of the queue
     pub capacity : u32, // capacity of the event queue
 
     #[max_len(1024)]
@@ -72,8 +72,8 @@ pub struct Event {
     pub event_type : u8 ,
     pub price : u64,
     pub quantity: u64,
-    pub maker : Pubkey,
-    pub taker : Pubkey,
+    pub maker : Pubkey,  // maker which provides liquidity
+    pub taker : Pubkey,  // taker which removes liquidity
     pub timestamp : u64
 }
 
