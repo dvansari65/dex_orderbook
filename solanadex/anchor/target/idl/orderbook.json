@@ -1,0 +1,705 @@
+{
+  "address": "JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H",
+  "metadata": {
+    "name": "orderbook",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "initialise_market",
+      "discriminator": [
+        164,
+        190,
+        47,
+        190,
+        198,
+        116,
+        201,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bids",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "asks",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "event_queue",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "base_vault",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "quote_vault",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_signer",
+          "docs": [
+            "This is a PDA used only as the authority for the token vaults.",
+            "It holds no data, is never read or written, and is only used for signing.",
+            "Safe because Anchor verifies the PDA seeds & bump."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  105,
+                  103,
+                  110,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "base_lot_size",
+          "type": "u64"
+        },
+        {
+          "name": "quote_lot_size",
+          "type": "u64"
+        },
+        {
+          "name": "maker_fees_bps",
+          "type": "u64"
+        },
+        {
+          "name": "taker_fees_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "place_order",
+      "discriminator": [
+        51,
+        194,
+        155,
+        175,
+        109,
+        130,
+        96,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "relations": [
+            "open_order"
+          ]
+        },
+        {
+          "name": "asks",
+          "writable": true
+        },
+        {
+          "name": "bids",
+          "writable": true
+        },
+        {
+          "name": "open_order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  101,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_queue",
+          "writable": true
+        },
+        {
+          "name": "quote_vault",
+          "writable": true
+        },
+        {
+          "name": "base_vault",
+          "writable": true
+        },
+        {
+          "name": "user_base_vault",
+          "writable": true
+        },
+        {
+          "name": "user_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "open_order"
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_base_size",
+          "type": "u64"
+        },
+        {
+          "name": "client_order_id",
+          "type": "u64"
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "order_type",
+          "type": {
+            "defined": {
+              "name": "OrderType"
+            }
+          }
+        },
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "Side"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "EventQueue",
+      "discriminator": [
+        41,
+        208,
+        116,
+        209,
+        173,
+        116,
+        141,
+        68
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    },
+    {
+      "name": "OpenOrders",
+      "discriminator": [
+        139,
+        166,
+        123,
+        206,
+        111,
+        2,
+        116,
+        33
+      ]
+    },
+    {
+      "name": "Slab",
+      "discriminator": [
+        94,
+        207,
+        123,
+        251,
+        151,
+        56,
+        91,
+        216
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "OrderFilledEvent",
+      "discriminator": [
+        218,
+        97,
+        153,
+        209,
+        56,
+        56,
+        251,
+        133
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "BalanceError",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 6001,
+      "name": "OrderbookFull",
+      "msg": "Order book full!"
+    },
+    {
+      "code": 6002,
+      "name": "OrderNotFound",
+      "msg": "order not found!"
+    },
+    {
+      "code": 6003,
+      "name": "OrderFull",
+      "msg": "Orders exceeded!"
+    }
+  ],
+  "types": [
+    {
+      "name": "Event",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "u64"
+          },
+          {
+            "name": "event_type",
+            "type": "u8"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "maker",
+            "type": "pubkey"
+          },
+          {
+            "name": "taker",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EventQueue",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tail",
+            "type": "u32"
+          },
+          {
+            "name": "header",
+            "type": "u32"
+          },
+          {
+            "name": "count",
+            "type": "u32"
+          },
+          {
+            "name": "capacity",
+            "type": "u32"
+          },
+          {
+            "name": "events",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Event"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "bids",
+            "type": "pubkey"
+          },
+          {
+            "name": "asks",
+            "type": "pubkey"
+          },
+          {
+            "name": "event_queue",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_lot_size",
+            "type": "u64"
+          },
+          {
+            "name": "quote_lot_size",
+            "type": "u64"
+          },
+          {
+            "name": "maker_fees_bps",
+            "type": "u64"
+          },
+          {
+            "name": "taker_fees_bps",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_signer_nonce",
+            "type": "u8"
+          },
+          {
+            "name": "market_status",
+            "type": "u8"
+          },
+          {
+            "name": "min_order_size",
+            "type": "u64"
+          },
+          {
+            "name": "max_orders_per_user",
+            "type": "u16"
+          },
+          {
+            "name": "padding",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Node",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "client_order_id",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "next",
+            "type": "u32"
+          },
+          {
+            "name": "prev",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OpenOrders",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_free",
+            "type": "u64"
+          },
+          {
+            "name": "base_locked",
+            "type": "u64"
+          },
+          {
+            "name": "quote_free",
+            "type": "u64"
+          },
+          {
+            "name": "quote_locked",
+            "type": "u64"
+          },
+          {
+            "name": "orders",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Order"
+                }
+              }
+            }
+          },
+          {
+            "name": "orders_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Order",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "order_type",
+            "type": {
+              "defined": {
+                "name": "OrderType"
+              }
+            }
+          },
+          {
+            "name": "order_id",
+            "type": "u128"
+          },
+          {
+            "name": "side",
+            "type": {
+              "defined": {
+                "name": "Side"
+              }
+            }
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "client_order_id",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OrderFilledEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "maker",
+            "type": "pubkey"
+          },
+          {
+            "name": "taker",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OrderType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Limit"
+          },
+          {
+            "name": "ImmediateOrCancel"
+          },
+          {
+            "name": "PostOnly"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Side",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Bid"
+          },
+          {
+            "name": "Ask"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Slab",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "head_index",
+            "type": "u32"
+          },
+          {
+            "name": "free_list_len",
+            "type": "u32"
+          },
+          {
+            "name": "leaf_count",
+            "type": "u32"
+          },
+          {
+            "name": "nodes",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Node"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

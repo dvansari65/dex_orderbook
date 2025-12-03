@@ -3,8 +3,7 @@ use std::u32;
 use anchor_lang::prelude::*;
 
 use crate::error::{MarketError, OrderError};
-use crate::events::*;
-use crate::state::{Event, Market, Node, OpenOrders, Order, Side, Slab};
+use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
 impl Slab {
     pub fn insert_order(
         &mut self,
@@ -62,11 +61,13 @@ impl Slab {
         Ok(())
     }
     fn remove_order(&mut self, order_id: u64) -> Result<Node> {
+
         let position = self
             .nodes
             .iter()
             .position(|n| n.client_order_id == order_id)
             .ok_or(OrderError::OrderNotFound)?;
+
         let removed_node = self.nodes.remove(position);
         self.leaf_count -= 1;
         msg!("Order {} removed!", order_id);
@@ -105,8 +106,7 @@ impl OpenOrders {
 pub fn match_orders(
     asks: &mut Slab,
     bids: &mut Slab,
-    open_order: &mut OpenOrders,
-    side: &Side,
+    event_queue:&mut EventQueue
 ) -> Result<()> {
     while !bids.nodes.is_empty() && !asks.nodes.is_empty() {
         let best_ask = asks.nodes.first().ok_or(MarketError::NoOrders)?;
@@ -116,28 +116,20 @@ pub fn match_orders(
             break;
         }
         let fill_qty = std::cmp::min(best_ask.quantity, best_bid.quantity);
-        let is_bid_taker = best_bid.timestamp > best_ask.timestamp;
+        let fill_price = best_ask.price;
 
-        let (maker,taker) = if is_bid_taker {
-            (best_ask.owner,best_bid.owner)
-        }else {
-            (best_bid.owner,best_ask.owner)
-        };
-        let trade_price = if is_bid_taker {
-            best_ask.price
-        }else {
-            best_bid.price
-        };
         let event = Event {
             order_id:best_ask.client_order_id,
             event_type:1,
-            price:trade_price,
+            price:fill_price,
             quantity:fill_qty,
-            maker,
-            taker,
+            maker:best_ask.owner,
+            taker:best_bid.owner,
             timestamp:Clock::get()?.unix_timestamp as u64
         };
-       open_order.base
+
+        event_queue.events.push(event);
+
         asks.nodes[0].quantity -= fill_qty;
         bids.nodes[0].quantity -= fill_qty;
         

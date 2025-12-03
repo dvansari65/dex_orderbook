@@ -1,25 +1,23 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{Mint as InterfaceMint, Token, TokenAccount,},
     associated_token::AssociatedToken,
+    token::{Mint as AnchorMint, TokenAccount as AnchorTokenAccount, Token},
 };
 
 declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
 
-pub mod state;
 pub mod error;
-pub mod helpers;
 pub mod events;
-use events::*;
-use helpers::*;
+pub mod helpers;
+pub mod state;
 use error::*;
+use helpers::*;
 use state::*;
 
 #[program]
 pub mod orderbook {
-    use anchor_spl::token::Transfer;
     use super::*;
-
+    use anchor_spl::token::Transfer;
     pub fn initialise_market(
         ctx: Context<InitializeMarket>,
         base_lot_size: u64,
@@ -30,7 +28,6 @@ pub mod orderbook {
         msg!("Initialise market hit...!");
 
         let market = &mut ctx.accounts.market;
-
         // Admin and tokens
         market.admin = ctx.accounts.admin.key();
         market.base_mint = ctx.accounts.base_mint.key();
@@ -63,77 +60,96 @@ pub mod orderbook {
 
         Ok(())
     }
+
     pub fn place_order(
         ctx: Context<PlaceOrder>,
-        max_quote_size:u64,
-        max_base_size:u64,
-        client_order_id:u64,
-        price:u64,
-        order_type:OrderType,
-        side:Side
-    )-> Result<()>{
+        max_base_size: u64,
+        client_order_id: u64,
+        price: u64,
+        order_type: OrderType,
+        side: Side,
+    ) -> Result<()> {
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
-        require!(market.market_status == 1 , MarketError::MarketActiveError);
-    
-        require!(max_base_size >= market.min_order_size,MarketError::MarketOrderSizeError);
-         
+        require!(market.market_status == 1, MarketError::MarketActiveError);
+
+        require!(
+            max_base_size >= market.min_order_size,
+            MarketError::MarketOrderSizeError
+        );
+
         let base_lots = max_base_size / market.base_lot_size;
 
         match side {
             Side::Bid => {
                 let amount_to_lock = price
-                                .checked_mul(base_lots)
-                                .ok_or(MarketError::MathOverflow)?
-                                .checked_mul(market.quote_lot_size)
-                                .ok_or(MarketError::MathOverflow)?;
+                    .checked_mul(base_lots)
+                    .ok_or(MarketError::MathOverflow)?
+                    .checked_mul(market.quote_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
 
                 anchor_spl::token::transfer(
-                    CpiContext::new(ctx.accounts.token_program.to_account_info(),{
+                    CpiContext::new(
+                        ctx.accounts.token_program.to_account_info(),
                         anchor_spl::token::Transfer {
-                            from:ctx.accounts.user_quote_vault.to_account_info(),
-                            to:ctx.accounts.quote_vault.to_account_info(),
-                            authority:ctx.accounts.owner.to_account_info(),
-                        }
-                    }),
-                    amount_to_lock
+                            from: ctx.accounts.user_quote_vault.to_account_info(),
+                            to: ctx.accounts.quote_vault.to_account_info(),
+                            authority: ctx.accounts.owner.to_account_info(),
+                        },
+                    ),
+                    amount_to_lock,
                 )?;
-                open_order.quote_locked += amount_to_lock;
-            },
+                open_order.quote_locked = open_order
+                    .quote_locked
+                    .checked_add(amount_to_lock)
+                    .ok_or(MarketError::MathOverflow)?;
+            }
             Side::Ask => {
                 let amount_to_lock = base_lots
-                                    .checked_mul(market.base_lot_size)
-                                    .ok_or(MarketError::MathOverflow)?;
+                    .checked_mul(market.base_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
                 anchor_spl::token::transfer(
-                   CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    {
+                    CpiContext::new(
+                        ctx.accounts.token_program.to_account_info(),
                         anchor_spl::token::Transfer {
-                            from:ctx.accounts.user_base_vault.to_account_info(),
-                            to:ctx.accounts.base_vault.to_account_info(),
-                            authority:ctx.accounts.owner.to_account_info()
-                        }
-                    }),
-                    amount_to_lock
+                            from: ctx.accounts.user_base_vault.to_account_info(),
+                            to: ctx.accounts.base_vault.to_account_info(),
+                            authority: ctx.accounts.owner.to_account_info(),
+                        },
+                    ),
+                    amount_to_lock,
                 )?;
-                open_order.base_locked += amount_to_lock;
+                open_order.base_locked = open_order
+                    .base_locked
+                    .checked_add(amount_to_lock)
+                    .ok_or(MarketError::MathOverflow)?;
             }
         }
+
         let slab = match side {
             Side::Ask => &mut ctx.accounts.asks,
-            Side::Bid => &mut ctx.accounts.bids
+            Side::Bid => &mut ctx.accounts.bids,
         };
         let order_id = Clock::get()?.unix_timestamp as u128;
-        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price);
+
+        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price)?;
         let created_order = Order {
             order_type,
             side,
-            quantity:base_lots,
+            quantity: base_lots,
             order_id,
             client_order_id,
-            price
+            price,
         };
-       
+
+        OpenOrders::push_order(&mut ctx.accounts.open_order, created_order)?;
+        if matches!(order_type, OrderType::ImmediateOrCancel) {
+            match_orders(
+                &mut ctx.accounts.asks,
+                &mut ctx.accounts.bids,
+                &mut ctx.accounts.event_queue,
+            )?;
+        }
         Ok(())
     }
 }
@@ -162,7 +178,7 @@ pub struct InitializeMarket<'info> {
         token::mint = base_mint,
         token::authority = vault_signer
     )]
-    pub base_vault: Account<'info, TokenAccount>,
+    pub base_vault: Account<'info, AnchorTokenAccount>,
 
     #[account(
         init,
@@ -170,9 +186,13 @@ pub struct InitializeMarket<'info> {
         token::mint = quote_mint,
         token::authority = vault_signer
     )]
-    pub quote_vault: Account<'info, TokenAccount>,
+    pub quote_vault: Account<'info, AnchorTokenAccount>,
 
     // PDA that can manage vaults
+    /// CHECK:
+    /// This is a PDA used only as the authority for the token vaults.
+    /// It holds no data, is never read or written, and is only used for signing.
+    /// Safe because Anchor verifies the PDA seeds & bump.
     #[account(
         seeds = [b"vault_signer", market.key().as_ref()],
         bump
@@ -184,25 +204,24 @@ pub struct InitializeMarket<'info> {
     pub admin: Signer<'info>,
 
     // Token mints
-    pub base_mint: Account<'info, InterfaceMint>,
-    pub quote_mint: Account<'info, InterfaceMint>,
+    pub base_mint: Account<'info, AnchorMint>,
+    pub quote_mint: Account<'info, AnchorMint>,
 
     // Programs
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
- #[derive(Accounts)]
- pub struct  PlaceOrder<'info> {
+#[derive(Accounts)]
+pub struct PlaceOrder<'info> {
     #[account(mut)]
-    pub market:Account<'info,Market>,
+    pub market: Account<'info, Market>,
 
     #[account(mut)]
-    pub asks:Account<'info,Slab>,
+    pub asks: Account<'info, Slab>,
 
     #[account(mut)]
-    pub bids:Account<'info,Slab>,
+    pub bids: Account<'info, Slab>,
 
     #[account(
         mut,
@@ -211,24 +230,21 @@ pub struct InitializeMarket<'info> {
         has_one = owner,
         has_one = market
     )]
-    pub open_order:Account<'info,OpenOrders>,
+    pub open_order: Account<'info, OpenOrders>,
 
     #[account(mut)]
-    pub quote_vault:Account<'info,TokenAccount>, //market quote vault
+    pub event_queue: Account<'info, EventQueue>,
+
     #[account(mut)]
-    pub base_vault:Account<'info,TokenAccount>, //market base vault
+    pub quote_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub base_vault: Account<'info, AnchorTokenAccount>,
 
-    #[account(
-        mut,
-        constraint = user_base_vault.owner == owner.key()
-    )]
-    pub user_base_vault:Account<'info,TokenAccount>,
-    #[account(
-        mut,
-        constraint = user_quote_vault.owner == owner.key()
-    )]
-    pub user_quote_vault:Account<'info,TokenAccount>,
+    #[account(mut)]
+    pub user_base_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub user_quote_vault: Account<'info, AnchorTokenAccount>,
 
-    pub owner : Signer<'info>,
-    pub token_program:Program<'info,Token>
- }
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
