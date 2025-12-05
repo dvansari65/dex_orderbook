@@ -10,6 +10,8 @@ pub enum OrderError {
     OrderNotFound,
     #[msg("Orders exceeded!")]
     OrderFull,
+    #[msg("No free space for the order!")]
+    NoSpace
 }
 
 #[error_code]
@@ -24,3 +26,21 @@ pub enum MarketError {
     NoOrders
 }
 
+#[error_code]
+pub enum OpenOrderError {
+    #[msg("Order not found!")]
+    OrderNotFound
+}
+
+
+#[error_code]
+pub enum EventError {
+   #[msg("Order not found in event queue!")]
+   OrderNotFound
+}
+
+#[error_code]
+pub enum SlabError {
+    #[msg("Order not found in the Slab!")]
+    OrderNotFound
+}

@@ -2,7 +2,7 @@ use std::u32;
 
 use anchor_lang::prelude::*;
 
-use crate::error::{MarketError, OrderError};
+use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
 impl Slab {
     pub fn insert_order(
@@ -13,24 +13,31 @@ impl Slab {
         price: u64,
     ) -> Result<()> {
         require!(self.nodes.len() < 1024, OrderError::OrderbookFull);
-
+        require!(self.free_list_len > 0,OrderError::NoSpace);
+        let timestamp = 1223239823;
         let new_node = Node {
             price,
             quantity,
             owner,
+            order_id,
             client_order_id: order_id as u64,
-            timestamp: Clock::get()?.unix_timestamp,
+            timestamp: timestamp,
             next: u32::MAX,
             prev: u32::MAX,
         };
 
         let insert_position = self.find_insert_position(price)?;
+        msg!("insert position:{:?}",insert_position);
         if insert_position == self.nodes.len() {
             self.nodes.push(new_node);
+            self.free_list_len -= 1;
         } else {
             self.nodes.push(new_node);
-            self.update_links(insert_position as u32)?;
+            self.update_links(insert_position)?;
+            self.free_list_len -= 1;
         }
+        
+        msg!("freel list len:{:?}",self.free_list_len);
         self.leaf_count += 1;
         msg!(
             "Order inserted: {} @ price {} (total orders: {})",
@@ -49,12 +56,12 @@ impl Slab {
         }
         Ok(self.nodes.len())
     }
-    fn update_links(&mut self, index: u32) -> Result<()> {
+    fn update_links(&mut self, index: usize) -> Result<()> {
         if index > 0 {
             self.nodes[index as usize].prev = (index - 1) as u32;
             self.nodes[(index - 1) as usize].next = (index) as u32;
         }
-        if index < (self.nodes.len() as u32) - 1 {
+        if index < (self.nodes.len()) - 1 {
             self.nodes[index as usize].next = (index + 1) as u32;
             self.nodes[(index + 1) as usize].prev = index as u32;
         }
@@ -85,6 +92,17 @@ impl Slab {
             .cloned()
             .collect()
     }
+    pub fn get_order_by_id (&mut self,order_id:u128)->Result<Option<&Node>> {
+        let position = self
+                                .nodes
+                                .iter()
+                                .position(|n| n.order_id == order_id)
+                                .ok_or(SlabError::OrderNotFound)?;
+
+        let order = self.nodes.get(position);
+        msg!("order find by ID: {:?}", order);
+        Ok(order)
+    }
 }
 
 impl OpenOrders {
@@ -99,6 +117,25 @@ impl OpenOrders {
     }
 
     pub fn update_open_order_assets() -> Result<()> {
+        Ok(())
+    }
+
+    pub fn remove_order(&mut self,order_id:u128,event_queue:&mut EventQueue)->Result<()>{
+       let position = self
+                            .orders
+                            .iter()
+                            .position(|n| n.order_id == order_id)
+                            .ok_or(OpenOrderError::OrderNotFound)?;
+
+        let order_position_in_events = event_queue
+                                        .events
+                                        .iter()
+                                        .position(|n| n.order_id == order_id )
+                                        .ok_or(EventError::OrderNotFound)?;
+        
+        event_queue.events.remove(order_position_in_events);
+        self.orders.remove(position);
+        self.orders_count -= 1;
         Ok(())
     }
 }
@@ -119,7 +156,7 @@ pub fn match_orders(
         let fill_price = best_ask.price;
 
         let event = Event {
-            order_id:best_ask.client_order_id,
+            order_id:best_ask.client_order_id as u128,
             event_type:1,
             price:fill_price,
             quantity:fill_qty,

@@ -152,6 +152,15 @@ pub mod orderbook {
         }
         Ok(())
     }
+    pub fn cancel_order (
+        ctx: Context<CancelOrder>,
+        order_id: u64
+    )->Result<()>{
+        let open_order = &mut ctx.accounts.open_order;
+        let market = &mut ctx.accounts.market;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -247,4 +256,47 @@ pub struct PlaceOrder<'info> {
 
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
+}
+
+
+#[derive(Accounts)]
+pub struct CancelOrder<'info> {
+    #[account(mut)]
+    pub  market : Account<'info,Market>,
+
+    #[account(
+        mut,
+        seeds = [b"open_order",market.key().as_ref(),owner.key().as_ref()],
+        bump,
+        has_one = owner,
+        has_one = market
+    )]
+    pub open_order: Account<'info, OpenOrders>,
+
+    #[account(mut)]
+    pub slab : Account<'info,Slab>,
+
+    #[account(mut)]
+    pub event_queue : Account<'info,EventQueue>,
+
+    #[account(mut)]
+    pub bids : Account<'info,Slab>,
+
+    #[account(mut)]
+    pub asks : Account<'info,Slab>,
+
+    #[account(mut)]
+    pub quote_vault : Account<'info,AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub base_vault : Account<'info,AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub user_base_vault: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub user_quote_vault: Account<'info, AnchorTokenAccount>,
+
+    pub owner : Signer<'info>,
+    pub token_program : Program<'info,Token>
 }

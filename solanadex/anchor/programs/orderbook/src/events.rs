@@ -7,3 +7,7 @@ pub struct OrderFilledEvent {
     pub price: u64,
     pub quantity: u64,
 }
+
+pub struct  CancelOrderEvent {
+    
+}

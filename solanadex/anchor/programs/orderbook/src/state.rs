@@ -31,7 +31,7 @@ pub struct Market {
 
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace,Debug)]
 pub struct Slab {
     pub head_index : u32,   // Index of the first free slot
     pub free_list_len : u32,   // Number of free slots available
@@ -41,13 +41,14 @@ pub struct Slab {
 }
 
 #[repr(C)]
-#[derive(AnchorSerialize, AnchorDeserialize, Clone,InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone,InitSpace,Debug)]
 pub struct Node {
     pub price: u64,            // Price scaled by quote lot size
     pub quantity: u64,         // unfilled qty
     pub owner: Pubkey,         // User who placed the order
     pub client_order_id: u64,  // Optional client reference
     pub timestamp: i64,        // Unix timestamp of order placement
+    pub order_id:u128,
 
     pub next: u32,             // Next node index (linked list)
     pub prev: u32,             // Previous node index
@@ -68,7 +69,7 @@ pub struct EventQueue {
 #[repr(C)]
 #[derive(AnchorDeserialize, AnchorSerialize, Clone , InitSpace)]
 pub struct Event {
-    pub order_id : u64 , 
+    pub order_id : u128 , 
     pub event_type : u8 ,
     pub price : u64,
     pub quantity: u64,
