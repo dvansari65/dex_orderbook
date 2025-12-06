@@ -1,9 +1,0 @@
-/Users/danishvahajuddinansari/WEB3/dex_orderbook/solanadex/anchor/target/sbpf-solana-solana/release/deps/libsolana_invoke-ed80c69b33fea711.rmeta: /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/lib.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/stable_instruction_borrowed.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/../README.md
-
-/Users/danishvahajuddinansari/WEB3/dex_orderbook/solanadex/anchor/target/sbpf-solana-solana/release/deps/libsolana_invoke-ed80c69b33fea711.rlib: /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/lib.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/stable_instruction_borrowed.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/../README.md
-
-/Users/danishvahajuddinansari/WEB3/dex_orderbook/solanadex/anchor/target/sbpf-solana-solana/release/deps/solana_invoke-ed80c69b33fea711.d: /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/lib.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/stable_instruction_borrowed.rs /Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/../README.md
-
-/Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/lib.rs:
-/Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/stable_instruction_borrowed.rs:
-/Users/danishvahajuddinansari/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-invoke-0.4.0/src/../README.md:
