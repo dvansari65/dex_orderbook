@@ -172,10 +172,12 @@ pub mod orderbook {
         match order.side {
             Side::Ask => {
                 let locked_base = order.quantity;
+
                 open_order.base_locked = open_order
                     .base_locked
                     .checked_sub(locked_base)
                     .ok_or(ErrorCode::UnderFlow)?;
+
                 open_order.base_free = open_order
                     .base_free
                     .checked_add(locked_base)
@@ -207,10 +209,12 @@ pub mod orderbook {
                     .price
                     .checked_mul(order.quantity)
                     .ok_or(ErrorCode::OverFlow)?;
+
                 open_order.quote_locked = open_order
                     .quote_locked
                     .checked_sub(quote_amount)
                     .ok_or(ErrorCode::UnderFlow)?;
+
                 open_order.quote_free = open_order
                     .quote_free
                     .checked_add(quote_amount)
@@ -241,7 +245,7 @@ pub mod orderbook {
         let removed_node = slab.remove_order(&order_id)?;
         msg!(" order removed from the slab :{:?}", removed_node);
         let returned_open_order =
-            open_order.remove_order(order_id as u128, &mut ctx.accounts.event_queue)?;
+            open_order.remove_order(order_id as u128)?;
 
         msg!(
             "open order after deleting the order:{:?}",

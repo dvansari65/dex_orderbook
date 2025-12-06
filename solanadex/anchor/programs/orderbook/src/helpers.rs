@@ -147,23 +147,14 @@ impl OpenOrders {
         Ok(())
     }
 
-    pub fn remove_order(&mut self,order_id:u128,event_queue:&mut EventQueue)->Result<&mut OpenOrders>{
+    pub fn remove_order(&mut self,order_id:u128)->Result<&mut OpenOrders>{
        let position = self
                             .orders
                             .iter()
                             .position(|n| n.order_id == order_id)
                             .ok_or(OpenOrderError::OrderNotFound)?;
-
-        let order_position_in_events = event_queue
-                                        .events
-                                        .iter()
-                                        .position(|n| n.order_id == order_id )
-                                        .ok_or(EventError::OrderNotFound)?;
-        
-        event_queue.events.remove(order_position_in_events);
         self.orders.remove(position);
         self.orders_count -= 1;
-        event_queue.count -= 1;
         Ok(self)
     }
 }
