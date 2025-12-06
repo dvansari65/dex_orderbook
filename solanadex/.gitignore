@@ -12,6 +12,13 @@
 
 # testing
 /coverage
+# Rust
+target/
+**/target/
+
+# Anchor
+.anchor/
+
 
 # next.js
 /.next/
