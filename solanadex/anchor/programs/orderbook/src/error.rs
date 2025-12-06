@@ -44,3 +44,15 @@ pub enum SlabError {
     #[msg("Order not found in the Slab!")]
     OrderNotFound
 }
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("Unauthorized request!")]
+    UnAuthorized,
+    #[msg("removed order not matched with order from the slab!")]
+    MisMatchedOrder,
+    #[msg("Under flow error!")]
+    UnderFlow,
+    #[msg("Over flow error!")]
+    OverFlow
+}

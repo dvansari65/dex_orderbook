@@ -68,23 +68,37 @@ impl Slab {
         }
         Ok(())
     }
-    pub fn update_links_after_removing(&mut self,index: usize)->Result<()>{
-        if index > 0{
-            self.nodes[index-1].next = (index + 1) as u32;
-            self.nodes[index + 1].prev = (index - 1) as u32;
+    pub fn update_links_after_removing(&mut self, removed_index: usize) -> Result<()> {
+        let len = self.nodes.len();
+        
+        // Boundary checks
+        if removed_index >= len && len > 0 {
+            // If removed_index is at the end, update the previous node
+            if removed_index > 0 && removed_index == len {
+                // The last node was removed, update the new last node
+                self.nodes[removed_index - 1].next = u32::MAX; // No next node
+            }
+            return Ok(());
         }
-        if index < self.nodes.len()-1{
-            self.nodes[index - 1].next = (index + 1) as u32;
-            self.nodes[index + 1].prev = (index - 1) as u32;
+        
+        // Update links for nodes around the removed position
+        if removed_index > 0 && removed_index < len {
+            // Link previous to current (which shifted down)
+            self.nodes[removed_index - 1].next = removed_index as u32;
+            self.nodes[removed_index].prev = (removed_index - 1) as u32;
+        } else if removed_index == 0 && len > 0 {
+            // First node was removed, update the new first node
+            self.nodes[0].prev = u32::MAX; // or 0, depending on your sentinel
         }
+        
         Ok(())
     }
-    pub fn remove_order(&mut self, order_id: u64) -> Result<Node> {
+    pub fn remove_order(&mut self, order_id: &u64) -> Result<Node> {
 
         let position = self
             .nodes
             .iter()
-            .position(|n| n.client_order_id == order_id)
+            .position(|n| n.client_order_id == *order_id)
             .ok_or(OrderError::OrderNotFound)?;
 
         let removed_node = self.nodes.remove(position);
@@ -133,7 +147,7 @@ impl OpenOrders {
         Ok(())
     }
 
-    pub fn remove_order(&mut self,order_id:u128,event_queue:&mut EventQueue)->Result<()>{
+    pub fn remove_order(&mut self,order_id:u128,event_queue:&mut EventQueue)->Result<&mut OpenOrders>{
        let position = self
                             .orders
                             .iter()
@@ -149,7 +163,8 @@ impl OpenOrders {
         event_queue.events.remove(order_position_in_events);
         self.orders.remove(position);
         self.orders_count -= 1;
-        Ok(())
+        event_queue.count -= 1;
+        Ok(self)
     }
 }
 

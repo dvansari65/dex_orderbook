@@ -60,7 +60,6 @@ pub struct EventQueue {
     pub tail : u32,     // oldest unread event
     pub header : u32,   // next write index
     pub count : u32 ,   // tells the length of the queue
-    pub capacity : u32, // capacity of the event queue
 
     #[max_len(1024)]
     pub events : Vec<Event>
@@ -78,7 +77,7 @@ pub struct Event {
     pub timestamp : u64
 }
 
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,InitSpace)]
+#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,InitSpace,Debug)]
 pub enum OrderType {
     Limit,
     ImmediateOrCancel,
@@ -86,7 +85,7 @@ pub enum OrderType {
 }
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace,Debug)]
 pub struct OpenOrders {
     pub market: Pubkey,
     pub owner: Pubkey,
@@ -99,7 +98,7 @@ pub struct OpenOrders {
     pub orders_count: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace,Debug)]
 pub struct Order {
     pub order_type:OrderType,
     pub order_id: u128,
@@ -109,7 +108,7 @@ pub struct Order {
     pub client_order_id: u64,
 }
 
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,PartialEq,Eq,InitSpace)]
+#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,PartialEq,Eq,InitSpace,Debug)]
 pub enum Side {
     Bid,
     Ask

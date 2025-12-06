@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{Mint as AnchorMint, TokenAccount as AnchorTokenAccount, Token},
+    token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
 
 declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
@@ -16,6 +16,8 @@ use state::*;
 
 #[program]
 pub mod orderbook {
+    use crate::error::ErrorCode;
+
     use super::*;
     use anchor_spl::token::Transfer;
     pub fn initialise_market(
@@ -152,13 +154,99 @@ pub mod orderbook {
         }
         Ok(())
     }
-    pub fn cancel_order (
-        ctx: Context<CancelOrder>,
-        order_id: u64
-    )->Result<()>{
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
         let open_order = &mut ctx.accounts.open_order;
+        let slab = &mut ctx.accounts.slab;
         let market = &mut ctx.accounts.market;
-        
+        require!(
+            open_order.owner.key() == ctx.accounts.owner.key(),
+            ErrorCode::UnAuthorized
+        );
+        let order_position = open_order
+            .orders
+            .iter()
+            .position(|n| n.order_id == order_id as u128)
+            .ok_or(OpenOrderError::OrderNotFound)?;
+        let order = open_order.orders.get(order_position).unwrap();
+
+        match order.side {
+            Side::Ask => {
+                let locked_base = order.quantity;
+                open_order.base_locked = open_order
+                    .base_locked
+                    .checked_sub(locked_base)
+                    .ok_or(ErrorCode::UnderFlow)?;
+                open_order.base_free = open_order
+                    .base_free
+                    .checked_add(locked_base)
+                    .ok_or(ErrorCode::OverFlow)?;
+
+                let market_key = market.key();
+                let seeds = &[
+                    b"vault_signer".as_ref(),
+                    market_key.as_ref(),
+                    &[market.vault_signer_nonce],
+                ];
+                let signer_seeds = &[&seeds[..]];
+
+                anchor_spl::token::transfer(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        Transfer {
+                            from: ctx.accounts.base_vault.to_account_info(),
+                            to: ctx.accounts.user_base_vault.to_account_info(),
+                            authority: ctx.accounts.vault_signer.to_account_info(),
+                        },
+                        signer_seeds,
+                    ),
+                    locked_base,
+                )?;
+            }
+            Side::Bid => {
+                let quote_amount = order
+                    .price
+                    .checked_mul(order.quantity)
+                    .ok_or(ErrorCode::OverFlow)?;
+                open_order.quote_locked = open_order
+                    .quote_locked
+                    .checked_sub(quote_amount)
+                    .ok_or(ErrorCode::UnderFlow)?;
+                open_order.quote_free = open_order
+                    .quote_free
+                    .checked_add(quote_amount)
+                    .ok_or(ErrorCode::OverFlow)?;
+
+                let market_key = market.key();
+                let seeds = &[
+                    b"vault_signer".as_ref(),
+                    market_key.as_ref(),
+                    &[market.vault_signer_nonce],
+                ];
+                let signer_seeds = &[&seeds[..]];
+
+                anchor_spl::token::transfer(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        Transfer {
+                            from: ctx.accounts.quote_vault.to_account_info(),
+                            to: ctx.accounts.user_quote_vault.to_account_info(),
+                            authority: ctx.accounts.vault_signer.to_account_info(),
+                        },
+                        signer_seeds,
+                    ),
+                    quote_amount,
+                )?;
+            }
+        }
+        let removed_node = slab.remove_order(&order_id)?;
+        msg!(" order removed from the slab :{:?}", removed_node);
+        let returned_open_order =
+            open_order.remove_order(order_id as u128, &mut ctx.accounts.event_queue)?;
+
+        msg!(
+            "open order after deleting the order:{:?}",
+            returned_open_order
+        );
         Ok(())
     }
 }
@@ -258,11 +346,10 @@ pub struct PlaceOrder<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-
 #[derive(Accounts)]
 pub struct CancelOrder<'info> {
     #[account(mut)]
-    pub  market : Account<'info,Market>,
+    pub market: Account<'info, Market>,
 
     #[account(
         mut,
@@ -273,23 +360,34 @@ pub struct CancelOrder<'info> {
     )]
     pub open_order: Account<'info, OpenOrders>,
 
-    #[account(mut)]
-    pub slab : Account<'info,Slab>,
+    // PDA that can manage vaults
+    /// CHECK:
+    /// This is a PDA used only as the authority for the token vaults.
+    /// It holds no data, is never read or written, and is only used for signing.
+    /// Safe because Anchor verifies the PDA seeds & bump.
+    #[account(
+        seeds = [b"vault_signer", market.key().as_ref()],
+        bump
+    )]
+    pub vault_signer: UncheckedAccount<'info>,
 
     #[account(mut)]
-    pub event_queue : Account<'info,EventQueue>,
+    pub slab: Account<'info, Slab>,
 
     #[account(mut)]
-    pub bids : Account<'info,Slab>,
+    pub event_queue: Account<'info, EventQueue>,
 
     #[account(mut)]
-    pub asks : Account<'info,Slab>,
+    pub bids: Account<'info, Slab>,
 
     #[account(mut)]
-    pub quote_vault : Account<'info,AnchorTokenAccount>,
+    pub asks: Account<'info, Slab>,
 
     #[account(mut)]
-    pub base_vault : Account<'info,AnchorTokenAccount>,
+    pub quote_vault: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub base_vault: Account<'info, AnchorTokenAccount>,
 
     #[account(mut)]
     pub user_base_vault: Account<'info, AnchorTokenAccount>,
@@ -297,6 +395,6 @@ pub struct CancelOrder<'info> {
     #[account(mut)]
     pub user_quote_vault: Account<'info, AnchorTokenAccount>,
 
-    pub owner : Signer<'info>,
-    pub token_program : Program<'info,Token>
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
 }

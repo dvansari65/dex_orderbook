@@ -1,15 +1,4 @@
-# Ignore Anchor config and scripts for language detection
-Anchor.toml linguist-language=Ignore
-Cargo.toml linguist-language=Ignore
-Cargo.lock linguist-language=Ignore
-tsconfig.json linguist-language=Ignore
 
-# Force Rust detection in programs folder
 programs/** linguist-language=Rust
 src/** linguist-language=Rust
 tests/** linguist-language=Rust
-
-# Ignore other boilerplate files
-*.json linguist-language=Ignore
-*.md linguist-language=Ignore
-*.txt linguist-language=Ignore
