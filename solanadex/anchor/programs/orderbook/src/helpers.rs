@@ -1,3 +1,4 @@
+use std::ptr::null;
 use std::u32;
 
 use anchor_lang::prelude::*;
@@ -36,7 +37,7 @@ impl Slab {
             self.update_links(insert_position)?;
             self.free_list_len -= 1;
         }
-        
+        self.update_links(insert_position)?;
         msg!("freel list len:{:?}",self.free_list_len);
         self.leaf_count += 1;
         msg!(
@@ -48,7 +49,7 @@ impl Slab {
         Ok(())
     }
 
-    fn find_insert_position(&self, price: u64) -> Result<usize> {
+    pub fn find_insert_position(&self, price: u64) -> Result<usize> {
         for (i, node) in self.nodes.iter().enumerate() {
             if price < node.price {
                 return Ok(i);
@@ -56,7 +57,7 @@ impl Slab {
         }
         Ok(self.nodes.len())
     }
-    fn update_links(&mut self, index: usize) -> Result<()> {
+    pub fn update_links(&mut self, index: usize) -> Result<()> {
         if index > 0 {
             self.nodes[index as usize].prev = (index - 1) as u32;
             self.nodes[(index - 1) as usize].next = (index) as u32;
@@ -67,7 +68,18 @@ impl Slab {
         }
         Ok(())
     }
-    fn remove_order(&mut self, order_id: u64) -> Result<Node> {
+    pub fn update_links_after_removing(&mut self,index: usize)->Result<()>{
+        if index > 0{
+            self.nodes[index-1].next = (index + 1) as u32;
+            self.nodes[index + 1].prev = (index - 1) as u32;
+        }
+        if index < self.nodes.len()-1{
+            self.nodes[index - 1].next = (index + 1) as u32;
+            self.nodes[index + 1].prev = (index - 1) as u32;
+        }
+        Ok(())
+    }
+    pub fn remove_order(&mut self, order_id: u64) -> Result<Node> {
 
         let position = self
             .nodes
@@ -78,6 +90,7 @@ impl Slab {
         let removed_node = self.nodes.remove(position);
         self.leaf_count -= 1;
         msg!("Order {} removed!", order_id);
+        self.update_links_after_removing(position)?;
         Ok(removed_node)
     }
     /// Get best order (for matching)

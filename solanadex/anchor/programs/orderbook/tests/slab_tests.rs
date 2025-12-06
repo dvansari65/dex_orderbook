@@ -27,15 +27,40 @@ fn test_insert_order() {
     assert_eq!(slab.free_list_len,1023);
     msg!(" free list len from test {:?}",slab.free_list_len);
     
+    
     // Insert second order with lower price (should go before)
     slab.insert_order(2, 200, owner, 30).unwrap();
     assert_eq!(slab.leaf_count, 2);
-    assert_eq!(slab.nodes[0].price, 30);
-    assert_eq!(slab.nodes[1].price, 50);
+    assert_eq!(slab.nodes[1].price, 30);
+    assert_eq!(slab.nodes[0].price, 50);
     assert_eq!(slab.free_list_len,1022);
+    msg!(" free list len from test {:?}",slab.free_list_len);
     // Insert third order with higher price (should go last)
     slab.insert_order(3, 150, owner, 60).unwrap();
     assert_eq!(slab.leaf_count, 3);
     assert_eq!(slab.nodes[2].price, 60);
     assert_eq!(slab.free_list_len,1021);
+
+    slab.update_links(1);
+    assert_eq!(slab.nodes[1].prev,0);
+    assert_eq!(slab.nodes[1].next,2);
+    assert_eq!(slab.nodes[0].next,1);
+
+    {
+        let removed_node = slab.remove_order(2).unwrap();
+        assert_eq!(removed_node.order_id, 2);
+        // removed_node is dropped at the end of this block
+    }
+    slab.update_links_after_removing(1); // safe mutable borrow
+    assert_eq!(slab.nodes[0].next, 1);
+    assert_eq!(slab.nodes[1].prev, 0);
+
+    let order_option = slab.get_order_by_id(3).unwrap();
+    match order_option {
+        Some(order) => {
+            assert_eq!(order.order_id, slab.nodes[1].order_id);
+            assert_eq!(order.price, slab.nodes[1].price);
+        }
+        None => panic!("Order not found!"),
+    }
 }
