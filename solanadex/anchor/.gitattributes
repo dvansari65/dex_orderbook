@@ -1,4 +1,2 @@
-
-programs/** linguist-language=Rust
-src/** linguist-language=Rust
-tests/** linguist-language=Rust
+Makefile linguist-vendored
+*.mk linguist-vendored
