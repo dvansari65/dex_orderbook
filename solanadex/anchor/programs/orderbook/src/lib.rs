@@ -253,6 +253,67 @@ pub mod orderbook {
         );
         Ok(())
     }
+    pub fn consume_events(
+        ctx: Context<ConsumeEvents>,
+        limit: u16,
+    ) -> Result<()> {
+        let event_queue = &mut ctx.accounts.event_queue;
+        let open_orders = &mut ctx.accounts.open_orders;
+        let market = &ctx.accounts.market;
+        
+        let to_process = std::cmp::min(limit as usize, event_queue.events.len());
+        
+        for _ in 0..to_process {
+            if event_queue.events.is_empty() {
+                break;
+            }
+            
+            let event = event_queue.events.remove(0);
+            event_queue.count = event_queue.count.saturating_sub(1);
+            
+            // Update if this user was involved
+            if event.maker == open_orders.owner {
+                // User was SELLER (maker)
+                let base_amount = event.quantity
+                    .checked_mul(market.base_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+                let quote_amount = event.quantity
+                    .checked_mul(event.price)
+                    .ok_or(MarketError::MathOverflow)?
+                    .checked_mul(market.quote_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+                
+                open_orders.base_locked = open_orders.base_locked
+                    .checked_sub(base_amount)
+                    .ok_or(ErrorCode::UnderFlow)?;
+                open_orders.quote_free = open_orders.quote_free
+                    .checked_add(quote_amount)
+                    .ok_or(ErrorCode::OverFlow)?;
+            }
+            
+            if event.taker == open_orders.owner {
+                // User was BUYER (taker)
+                let base_amount = event.quantity
+                    .checked_mul(market.base_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+                let quote_amount = event.quantity
+                    .checked_mul(event.price)
+                    .ok_or(MarketError::MathOverflow)?
+                    .checked_mul(market.quote_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+                
+                open_orders.quote_locked = open_orders.quote_locked
+                    .checked_sub(quote_amount)
+                    .ok_or(ErrorCode::UnderFlow)?;
+                open_orders.base_free = open_orders.base_free
+                    .checked_add(base_amount)
+                    .ok_or(ErrorCode::OverFlow)?;
+            }
+        }
+        
+        msg!("Consumed {} events", to_process);
+        Ok(())
+    }
 }
 // TODO:implement consume event instn  and settle fund instn
 #[derive(Accounts)]
@@ -401,4 +462,24 @@ pub struct CancelOrder<'info> {
 
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
+}
+
+
+#[derive(Accounts)]
+pub struct ConsumeEvents<'info> {
+    pub market: Account<'info, Market>,
+    
+    #[account(mut)]
+    pub event_queue: Account<'info, EventQueue>,
+    
+    #[account(
+        mut,
+        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
+        bump,
+        has_one = owner,
+        has_one = market
+    )]
+    pub open_orders: Account<'info, OpenOrders>,
+    
+    pub owner: Signer<'info>,
 }
