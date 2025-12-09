@@ -3,7 +3,6 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
-
 declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
 
 pub mod error;
@@ -154,10 +153,11 @@ pub mod orderbook {
         }
         Ok(())
     }
-    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u128) -> Result<()> {
         let open_order = &mut ctx.accounts.open_order;
         let slab = &mut ctx.accounts.slab;
         let market = &mut ctx.accounts.market;
+        let event_queue = &mut ctx.accounts.event_queue;
         require!(
             open_order.owner.key() == ctx.accounts.owner.key(),
             ErrorCode::UnAuthorized
@@ -244,13 +244,22 @@ pub mod orderbook {
         }
         let removed_node = slab.remove_order(&order_id)?;
         msg!(" order removed from the slab :{:?}", removed_node);
-        let returned_open_order =
-            open_order.remove_order(order_id as u128)?;
+        let returned_open_order = open_order.remove_order(order_id as u128)?;
 
         msg!(
             "open order after deleting the order:{:?}",
             returned_open_order
         );
+        let order_from_event = event_queue.events.iter().find(|n| n.order_id == order_id).unwrap();
+        emit!(Event {
+            order_id,
+            event_type:EventType::Cancel,
+            price:order_from_event.price,
+            quantity:order_from_event.quantity,
+            maker:order_from_event.maker,
+            taker:order_from_event.taker,
+            timestamp:order_from_event.timestamp
+        });
         Ok(())
     }
     pub fn consume_events(
@@ -480,6 +489,5 @@ pub struct ConsumeEvents<'info> {
         has_one = market
     )]
     pub open_orders: Account<'info, OpenOrders>,
-    
     pub owner: Signer<'info>,
 }
