@@ -1,9 +1,12 @@
 use std::ptr::null;
-use std::u32;
+use std::{clone, u32};
 
 use anchor_lang::prelude::*;
 
 use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::events::OrderFilledEvent;
+use crate::state::EventType::*;
+
 use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
 impl Slab {
     pub fn insert_order(
@@ -93,12 +96,12 @@ impl Slab {
         
         Ok(())
     }
-    pub fn remove_order(&mut self, order_id: &u64) -> Result<Node> {
+    pub fn remove_order(&mut self, order_id: &u128) -> Result<Node> {
 
         let position = self
             .nodes
             .iter()
-            .position(|n| n.client_order_id == *order_id)
+            .position(|n| n.client_order_id == *order_id as u64)
             .ok_or(OrderError::OrderNotFound)?;
 
         let removed_node = self.nodes.remove(position);
@@ -176,15 +179,15 @@ pub fn match_orders(
 
         let event = Event {
             order_id:best_ask.client_order_id as u128,
-            event_type:1,
+            event_type:NewOrder,
             price:fill_price,
             quantity:fill_qty,
             maker:best_ask.owner,
             taker:best_bid.owner,
             timestamp:Clock::get()?.unix_timestamp as u64
         };
-
-        event_queue.events.push(event);
+        event_queue.events.push(event.clone());
+        emit!(event);
 
         asks.nodes[0].quantity -= fill_qty;
         bids.nodes[0].quantity -= fill_qty;
@@ -199,4 +202,16 @@ pub fn match_orders(
         }
     }
     Ok(())
+}
+impl EventQueue {
+    pub fn get_event_by_order_id (&mut self , order_id: &u128)->Result<Option<&Event>>{
+        let event_position = self
+                                        .events
+                                        .iter()
+                                        .position(|n| n.order_id == *order_id)
+                                        .ok_or(EventError::OrderNotFound)?;
+                                        
+        let event = self.events.get(event_position);
+        Ok(event)
+    }
 }
