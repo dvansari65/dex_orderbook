@@ -20,3 +20,4 @@ pub struct OrderCancelledEvent {  // ← Add "Event" suffix
     pub taker: Pubkey,
     pub timestamp: u64,
 }
+

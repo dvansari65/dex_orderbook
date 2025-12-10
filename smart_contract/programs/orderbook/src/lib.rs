@@ -3,7 +3,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
-declare_id!("JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H");
+declare_id!("CGar3YimvFpENuuSnFGqZXMbDc7D76mqu7YTvMftBnsN");
 
 pub mod error;
 pub mod events;
@@ -72,6 +72,7 @@ pub mod orderbook {
     ) -> Result<()> {
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
+        let owner = &mut ctx.accounts.owner;
         require!(market.market_status == 1, MarketError::MarketActiveError);
 
         require!(
@@ -80,6 +81,15 @@ pub mod orderbook {
         );
 
         let base_lots = max_base_size / market.base_lot_size;
+        emit!(Event {
+            order_id:Clock::get()?.unix_timestamp as u128,
+            event_type: EventType::NewOrder,
+            price,
+            quantity: base_lots,
+            maker:owner.key(),  // Owner who placed the order
+            taker: Pubkey::default(), // No taker yet for new order
+            timestamp: Clock::get()?.unix_timestamp as u64
+        });
 
         match side {
             Side::Bid => {
@@ -104,6 +114,7 @@ pub mod orderbook {
                     .quote_locked
                     .checked_add(amount_to_lock)
                     .ok_or(MarketError::MathOverflow)?;
+               
             }
             Side::Ask => {
                 let amount_to_lock = base_lots
@@ -252,9 +263,10 @@ pub mod orderbook {
         );
         let order_from_event = event_queue.events.iter().find(|n| n.order_id == order_id).unwrap();
 
-        emit!( OrderCancelledEvent {
+        emit!( Event {
             order_id,
             price:order_from_event.price,
+            event_type:EventType::Cancel,
             quantity:order_from_event.quantity,
             maker:order_from_event.maker,
             taker:order_from_event.taker,
