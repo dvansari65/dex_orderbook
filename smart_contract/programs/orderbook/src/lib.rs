@@ -15,7 +15,7 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use crate::{error::ErrorCode, events::OrderCancelledEvent};
+    use crate::{error::ErrorCode};
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -73,6 +73,7 @@ pub mod orderbook {
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
         let owner = &mut ctx.accounts.owner;
+        let event_queue = &mut ctx.accounts.event_queue;
         require!(market.market_status == 1, MarketError::MarketActiveError);
 
         require!(
@@ -81,7 +82,7 @@ pub mod orderbook {
         );
 
         let base_lots = max_base_size / market.base_lot_size;
-        emit!(Event {
+        let event = Event {
             order_id:Clock::get()?.unix_timestamp as u128,
             event_type: EventType::NewOrder,
             price,
@@ -89,8 +90,9 @@ pub mod orderbook {
             maker:owner.key(),  // Owner who placed the order
             taker: Pubkey::default(), // No taker yet for new order
             timestamp: Clock::get()?.unix_timestamp as u64
-        });
-
+        };
+        emit!(event);
+        EventQueue::insert_event(event_queue, &event)?;
         match side {
             Side::Bid => {
                 let amount_to_lock = price
@@ -179,7 +181,18 @@ pub mod orderbook {
             .position(|n| n.order_id == order_id as u128)
             .ok_or(OpenOrderError::OrderNotFound)?;
         let order = open_order.orders.get(order_position).unwrap();
-
+        let order_from_event = event_queue.events.iter().find(|n| n.order_id == order_id).unwrap();
+        let event = Event {
+            order_id,
+            price:order_from_event.price,
+            event_type:EventType::Cancel,
+            quantity:order_from_event.quantity,
+            maker:order_from_event.maker,
+            taker:order_from_event.taker,
+            timestamp:order_from_event.timestamp
+        };
+        emit!(event);
+        EventQueue::insert_event(event_queue, &event)?;
         match order.side {
             Side::Ask => {
                 let locked_base = order.quantity;
@@ -261,17 +274,7 @@ pub mod orderbook {
             "open order after deleting the order:{:?}",
             returned_open_order
         );
-        let order_from_event = event_queue.events.iter().find(|n| n.order_id == order_id).unwrap();
 
-        emit!( Event {
-            order_id,
-            price:order_from_event.price,
-            event_type:EventType::Cancel,
-            quantity:order_from_event.quantity,
-            maker:order_from_event.maker,
-            taker:order_from_event.taker,
-            timestamp:order_from_event.timestamp
-        });
         Ok(())
     }
     pub fn consume_events(
