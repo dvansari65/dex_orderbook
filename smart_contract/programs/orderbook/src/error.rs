@@ -56,3 +56,9 @@ pub enum ErrorCode {
     #[msg("Over flow error!")]
     OverFlow
 }
+
+#[error_code]
+pub enum EventQueueError {
+    #[msg("Queue full!")]
+    QueueFull
+}
