@@ -36,7 +36,7 @@ pub struct Slab {
     pub head_index : u32,   // Index of the first free slot
     pub free_list_len : u32,   // Number of free slots available
     pub leaf_count : u32,
-    #[max_len(1024)] 
+    #[max_len(32)]
     pub nodes:Vec<Node>    //dynamic array
 }
 
@@ -61,7 +61,7 @@ pub struct EventQueue {
     pub header : u32,   // next write index
     pub count : u32 ,   // tells the length of the queue
 
-    #[max_len(1024)]
+    #[max_len(32)]
     pub events : Vec<Event>
 }
 
@@ -94,7 +94,7 @@ pub struct OpenOrders {
     pub base_locked: u64,
     pub quote_free: u64,
     pub quote_locked: u64,
-    #[max_len(1024)] // Max orders
+    #[max_len(16)] // Max orders
     pub orders: Vec<Order>, 
     pub orders_count: u8,
 }
