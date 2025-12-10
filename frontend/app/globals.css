@@ -1,26 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ===== BACKGROUNDS ===== */
+  --bg-background: rgb(234, 231, 231);
+  --phoenix-bg-main: #FAF8F6;       /* Universal page background */
+  --phoenix-bg-subtle: #F4F1EE;     /* Sections / cards */
+  --phoenix-bg-glass: rgba(247, 246, 244, 0.7); /* Glass navbar */
+  --phoenix-bg-glass-strong: rgba(247, 246, 244, 0.85);
+
+  /* ===== BORDERS ===== */
+  --phoenix-border-light: #E6E4E1;
+  --phoenix-border-glass: rgba(255, 255, 255, 0.4);
+
+  /* ===== TEXT ===== */
+  --phoenix-text-primary: #2B1B12;   /* Headings / main text */
+  --phoenix-text-secondary: #6F625B; /* Muted text */
+  --phoenix-text-subtle: #9A928C;    /* Meta / labels */
+
+  /* ===== ACCENT (ORANGE) ===== */
+  --phoenix-accent: #FF7A2F;
+  --phoenix-accent-hover: #FF8F52;
+  --phoenix-accent-soft: rgba(255, 122, 47, 0.15);
+
+  /* ===== SHADOWS ===== */
+  --phoenix-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --phoenix-shadow-md: 0 8px 30px rgba(0, 0, 0, 0.06);
+  --phoenix-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.08);
+
+  /* ===== BLUR ===== */
+  --phoenix-blur-md: blur(16px);
+  --phoenix-blur-lg: blur(24px);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
 
 body {
-  background: var(--background);
+  background: var(--bg-background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
