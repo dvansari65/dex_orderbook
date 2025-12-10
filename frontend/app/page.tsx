@@ -55,8 +55,8 @@ export default function Home() {
           </div>
         </div>
       </section>
-      <section className="w-full flex justify-center pb-40 pl-15">
-        <div className="w-[92%] max-w-[1200px]">
+      <section className="w-full flex justify-center pb-10 md:pb-20 lg:pb-40 px-4 sm:px-8 lg:pl-15">
+        <div className="w-full max-w-[1200px]">
           {/* TOP LABEL */}
           <div className="flex items-center gap-2 mb-5">
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FF7A2F]/10">
@@ -82,45 +82,47 @@ export default function Home() {
           </div>
 
           {/* MAIN CONTENT */}
-          <div className="w-full flex flex-col items-start ">
+          <div className="w-full flex flex-col items-start">
             {/* LEFT TEXT */}
-            <div className="w-full flex flex-col items-start justify-center mb-5">
-              <h2 className="text-[60px] leading-[1.15] font-medium text-[#2B1B12]">
+            <div className="w-full flex flex-col items-start justify-center mb-8 lg:mb-5">
+              <h2 className="text-[32px] sm:text-[42px] md:text-[50px] lg:text-[60px] leading-[1.15] font-medium text-[#2B1B12]">
                 The future of DeFi is fast, cheap, and efficient.
               </h2>
 
-              <p className="mt-1 text-[20px] text-[#6F625B] leading-relaxed">
+              <p className="mt-2 sm:mt-1 text-[16px] sm:text-[18px] lg:text-[20px] text-[#6F625B] leading-relaxed">
                 Supercharge your trading experience on a high-performance
                 network with ultra-low fees.
               </p>
             </div>
 
             {/* RIGHT STATS */}
-            <div className="w-[80%] flex justify-between  mt-5">
-              <div className="flex flex-col items-start">
-                <p className="text-[#6F625B] text-sm ">
-                  Protocol fees as low as
-                </p>
-                <p className="text-[#2B1B12] text-[60px] font-medium">0.02%</p>
-                <p className="text-[#9A928C] text-sm ">Per trade</p>
-              </div>
+            <div className="w-full lg:w-[80%] flex flex-col sm:flex-row gap-8 sm:gap-4 md:gap-8 lg:gap-0 sm:justify-between sm:items-center mt-8 lg:mt-5">
+  <div className="flex flex-col items-center sm:items-center lg:items-start">
+    <p className="text-[#6F625B] text-sm text-center sm:text-left">
+      Protocol fees as low as
+    </p>
+    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+      0.02%
+    </p>
+    <p className="text-[#9A928C] text-sm text-center sm:text-left">Per trade</p>
+  </div>
 
-              <div>
-                <p className="text-[#6F625B] text-sm ">Network fees</p>
-                <p className="text-[#2B1B12] text-[60px] font-medium">
-                  $0.0002
-                </p>
-                <p className="text-[#9A928C] text-sm">Per transaction</p>
-              </div>
+  <div className="flex flex-col items-center sm:items-center lg:items-start">
+    <p className="text-[#6F625B] text-sm text-center sm:text-left">Network fees</p>
+    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+      $0.0002
+    </p>
+    <p className="text-[#9A928C] text-sm text-center sm:text-left">Per transaction</p>
+  </div>
 
-              <div>
-                <p className="text-[#6F625B] text-sm ">Average block time</p>
-                <p className="text-[#2B1B12] text-[60px] font-medium">
-                  0.5 sec
-                </p>
-                <p className="text-[#6F625B] text-sm ">Only on Solana</p>
-              </div>
-            </div>
+  <div className="flex flex-col items-center sm:items-center lg:items-start">
+    <p className="text-[#6F625B] text-sm text-center sm:text-left">Average block time</p>
+    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+      0.5 sec
+    </p>
+    <p className="text-[#6F625B] text-sm text-center sm:text-left">Only on Solana</p>
+  </div>
+</div>
           </div>
         </div>
       </section>
