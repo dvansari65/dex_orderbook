@@ -1,9 +1,9 @@
 # Node
 **/node_modules/
-
+test-ledger/
 **/target/
 **/.anchor/
 
 .env
 .env.local
-.env.*
+.env.*test-ledger/
