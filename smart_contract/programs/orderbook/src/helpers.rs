@@ -3,7 +3,7 @@ use std::{clone, u32};
 
 use anchor_lang::prelude::*;
 
-use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::error::{EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::events::OrderFilledEvent;
 use crate::state::EventType::*;
 
@@ -213,5 +213,27 @@ impl EventQueue {
                                         
         let event = self.events.get(event_position);
         Ok(event)
+    }
+   pub fn insert_event (&mut self,event:&Event)->Result<()> {
+        let capacity = 32;
+        if self.count > capacity as u32 {
+            return Err(EventQueueError::QueueFull)?;
+        }
+        // Insert at header position
+        if (self.header as usize) < self.events.len() {
+            // Overwrite existing slot (circular buffer)
+            self.events[self.header as usize] = event.clone();
+        } else {
+            // Append new (for initial filling)
+            self.events.push(event.clone());
+        }
+
+        self.header = (self.header + 1) % capacity;
+        if self.count < capacity {
+            self.count += 1;
+        }
+       self.count = capacity.min(self.count + 1);
+
+        Ok(())
     }
 }
