@@ -8,7 +8,7 @@ export class InMemoryStorage {
 
     storeEvent(event: OrderbookEvent) {
         this.events.push(event)
-        console.log(`stored event : ${event.type}`);
+        console.log(`stored event : ${event.eventType}`);
     }
     updateMarketState(marketState: MarketState, market: string) {
         this.marketState.set(market, marketState);
