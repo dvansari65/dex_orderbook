@@ -1,5 +1,5 @@
 {
-  "address": "JAVuBXeBZqXNtS73azhBDAoYaaAFfo4gWXoZe2e7Jf8H",
+  "address": "CGar3YimvFpENuuSnFGqZXMbDc7D76mqu7YTvMftBnsN",
   "metadata": {
     "name": "orderbook",
     "version": "0.1.0",
@@ -547,23 +547,8 @@
   "errors": [
     {
       "code": 6000,
-      "name": "UnAuthorized",
-      "msg": "Unauthorized request!"
-    },
-    {
-      "code": 6001,
-      "name": "MisMatchedOrder",
-      "msg": "removed order not matched with order from the slab!"
-    },
-    {
-      "code": 6002,
-      "name": "UnderFlow",
-      "msg": "Under flow error!"
-    },
-    {
-      "code": 6003,
-      "name": "OverFlow",
-      "msg": "Over flow error!"
+      "name": "OrderNotFound",
+      "msg": "Order not found!"
     }
   ],
   "types": [
