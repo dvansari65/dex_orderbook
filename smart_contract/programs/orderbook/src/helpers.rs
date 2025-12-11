@@ -214,25 +214,28 @@ impl EventQueue {
         let event = self.events.get(event_position);
         Ok(event)
     }
-   pub fn insert_event (&mut self,event:&Event)->Result<()> {
-        let capacity = 32;
-        if self.count > capacity as u32 {
-            return Err(EventQueueError::QueueFull)?;
-        }
-        // Insert at header position
-        if (self.header as usize) < self.events.len() {
-            // Overwrite existing slot (circular buffer)
-            self.events[self.header as usize] = event.clone();
-        } else {
-            // Append new (for initial filling)
-            self.events.push(event.clone());
-        }
+    pub fn insert_event(&mut self, event: &Event) -> Result<()> {
+        const CAPACITY: usize = 32;
 
-        self.header = (self.header + 1) % capacity;
-        if self.count < capacity {
+        // If queue full → overwrite oldest
+        if self.count == CAPACITY as u32 {
+            // Move tail forward (drop the oldest event)
+            self.tail = (self.tail + 1) % CAPACITY as u32;
+        } else {
             self.count += 1;
         }
-       self.count = capacity.min(self.count + 1);
+
+        // Write event at header index
+        if self.events.len() < CAPACITY {
+            // Growing phase (first 32 inserts)
+            self.events.push(event.clone());
+        } else {
+            // Fully allocated → overwrite
+            self.events[self.header as usize] = event.clone();
+        }
+
+        // Move header forward
+        self.header = (self.header + 1) % CAPACITY as u32;
 
         Ok(())
     }
