@@ -1,10 +1,13 @@
 import { EventListener } from "./listener";
 import { InMemoryStorage } from "./storage";
 import { OrderbookEvent, EventType, Market } from "./types";
+import dotenv from "dotenv"
 
-const RPC_URL =  "http://127.0.0.1:8899";
-const PROGRAM_ID = process.env.PROGRAM_ID || "2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku";
-const MARKET_PUBKEY = "CGXdRE1s7NdB8GM75zY3EaxUSg51cNkisAKrSzqZvAhN";
+dotenv.config();
+
+const RPC_URL =  process.env.RPC_URL || "http://127.0.0.1:8899";
+const PROGRAM_ID = process.env.PROGRAM_ID || "";
+const MARKET_PUBKEY = process.env.MARKET_PUBKEY || ""
 
 async function main() {
   console.log("Starting indexer...");
@@ -64,6 +67,7 @@ async function main() {
         padding: Array.from(marketData.padding),
         status: marketData.marketStatus,
         });
+
       }
       if (marketData?.asks) {
         const asks = await listener.fetchAskSlabState(marketData.asks);
