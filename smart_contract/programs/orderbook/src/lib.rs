@@ -15,7 +15,7 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use crate::{error::ErrorCode};
+    use crate::error::ErrorCode;
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -83,13 +83,13 @@ pub mod orderbook {
 
         let base_lots = max_base_size / market.base_lot_size;
         let event = Event {
-            order_id:Clock::get()?.unix_timestamp as u128,
+            order_id: Clock::get()?.unix_timestamp as u128,
             event_type: EventType::NewOrder,
             price,
             quantity: base_lots,
-            maker:owner.key(),  // Owner who placed the order
+            maker: owner.key(),       // Owner who placed the order
             taker: Pubkey::default(), // No taker yet for new order
-            timestamp: Clock::get()?.unix_timestamp as u64
+            timestamp: Clock::get()?.unix_timestamp as u64,
         };
         emit!(event);
         EventQueue::insert_event(event_queue, &event)?;
@@ -116,7 +116,6 @@ pub mod orderbook {
                     .quote_locked
                     .checked_add(amount_to_lock)
                     .ok_or(MarketError::MathOverflow)?;
-               
             }
             Side::Ask => {
                 let amount_to_lock = base_lots
@@ -181,15 +180,19 @@ pub mod orderbook {
             .position(|n| n.order_id == order_id as u128)
             .ok_or(OpenOrderError::OrderNotFound)?;
         let order = open_order.orders.get(order_position).unwrap();
-        let order_from_event = event_queue.events.iter().find(|n| n.order_id == order_id).unwrap();
+        let order_from_event = event_queue
+            .events
+            .iter()
+            .find(|n| n.order_id == order_id)
+            .unwrap();
         let event = Event {
             order_id,
-            price:order_from_event.price,
-            event_type:EventType::Cancel,
-            quantity:order_from_event.quantity,
-            maker:order_from_event.maker,
-            taker:order_from_event.taker,
-            timestamp:order_from_event.timestamp
+            price: order_from_event.price,
+            event_type: EventType::Cancel,
+            quantity: order_from_event.quantity,
+            maker: order_from_event.maker,
+            taker: order_from_event.taker,
+            timestamp: order_from_event.timestamp,
         };
         emit!(event);
         EventQueue::insert_event(event_queue, &event)?;
@@ -277,67 +280,85 @@ pub mod orderbook {
 
         Ok(())
     }
-    pub fn consume_events(
-        ctx: Context<ConsumeEvents>,
-        limit: u16,
-    ) -> Result<()> {
+    pub fn consume_events(ctx: Context<ConsumeEvents>, limit: u16) -> Result<()> {
         let event_queue = &mut ctx.accounts.event_queue;
         let open_orders = &mut ctx.accounts.open_orders;
         let market = &ctx.accounts.market;
-        
+
         let to_process = std::cmp::min(limit as usize, event_queue.events.len());
-        
+
         for _ in 0..to_process {
             if event_queue.events.is_empty() {
                 break;
             }
-            
+
             let event = event_queue.events.remove(0);
             event_queue.count = event_queue.count.saturating_sub(1);
-            
+
             // Update if this user was involved
             if event.maker == open_orders.owner {
                 // User was SELLER (maker)
-                let base_amount = event.quantity
+                let base_amount = event
+                    .quantity
                     .checked_mul(market.base_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
-                let quote_amount = event.quantity
+                let quote_amount = event
+                    .quantity
                     .checked_mul(event.price)
                     .ok_or(MarketError::MathOverflow)?
                     .checked_mul(market.quote_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
-                
-                open_orders.base_locked = open_orders.base_locked
+
+                open_orders.base_locked = open_orders
+                    .base_locked
                     .checked_sub(base_amount)
                     .ok_or(ErrorCode::UnderFlow)?;
-                open_orders.quote_free = open_orders.quote_free
+                open_orders.quote_free = open_orders
+                    .quote_free
                     .checked_add(quote_amount)
                     .ok_or(ErrorCode::OverFlow)?;
             }
-            
+
             if event.taker == open_orders.owner {
                 // User was BUYER (taker)
-                let base_amount = event.quantity
+                let base_amount = event
+                    .quantity
                     .checked_mul(market.base_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
-                let quote_amount = event.quantity
+                let quote_amount = event
+                    .quantity
                     .checked_mul(event.price)
                     .ok_or(MarketError::MathOverflow)?
                     .checked_mul(market.quote_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
-                
-                open_orders.quote_locked = open_orders.quote_locked
+
+                open_orders.quote_locked = open_orders
+                    .quote_locked
                     .checked_sub(quote_amount)
                     .ok_or(ErrorCode::UnderFlow)?;
-                open_orders.base_free = open_orders.base_free
+                open_orders.base_free = open_orders
+                    .base_free
                     .checked_add(base_amount)
                     .ok_or(ErrorCode::OverFlow)?;
             }
         }
-        
+
         msg!("Consumed {} events", to_process);
         Ok(())
     }
+}
+
+pub fn initialise_open_order(ctx: Context<InitialiseOpenOrder>) -> Result<()> {
+    let open_order = &mut ctx.accounts.open_order;
+    open_order.market =  ctx.accounts.market.key();
+    open_order.owner =  ctx.accounts.owner.key();
+    open_order.base_free = 0;
+    open_order.base_locked = 0;
+    open_order.orders_count = 0;
+    open_order.quote_free = 0;
+    open_order.quote_locked = 0;
+    open_order.orders = Vec::new();
+    Ok(())
 }
 // TODO:implement consume event instn  and settle fund instn
 #[derive(Accounts)]
@@ -488,14 +509,13 @@ pub struct CancelOrder<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-
 #[derive(Accounts)]
 pub struct ConsumeEvents<'info> {
     pub market: Account<'info, Market>,
-    
+
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
-    
+
     #[account(
         mut,
         seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
@@ -505,4 +525,24 @@ pub struct ConsumeEvents<'info> {
     )]
     pub open_orders: Account<'info, OpenOrders>,
     pub owner: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitialiseOpenOrder<'info> {
+    #[account(
+        init,
+        space = 8 + OpenOrders::INIT_SPACE,
+        seeds=[b"open_order",market.key().as_ref(),owner.key().as_ref()],
+        payer = owner,
+        bump
+    )]
+    pub open_order: Account<'info, OpenOrders>,
+
+    #[account(mut)]
+    pub market: Account<'info, Market>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
