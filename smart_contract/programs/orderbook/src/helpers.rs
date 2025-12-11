@@ -16,16 +16,16 @@ impl Slab {
         owner: Pubkey,
         price: u64,
     ) -> Result<()> {
-        require!(self.nodes.len() < 1024, OrderError::OrderbookFull);
+        require!(self.nodes.len() < 32, OrderError::OrderbookFull);
         require!(self.free_list_len > 0,OrderError::NoSpace);
-        let timestamp = 1223239823;
+       
         let new_node = Node {
             price,
             quantity,
             owner,
             order_id,
             client_order_id: order_id as u64,
-            timestamp: timestamp,
+            timestamp: Clock::get()?.unix_timestamp,
             next: u32::MAX,
             prev: u32::MAX,
         };

@@ -6,8 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-orderbook = "CGar3YimvFpENuuSnFGqZXMbDc7D76mqu7YTvMftBnsN"
-
+orderbook = "4uPZkgMLRnDaUX2odfb1ocpGPywHkU2eqM7v8WGJ5Uqb"
 
 [registry]
 url = "http://127.0.0.1:8899"
@@ -20,4 +19,6 @@ wallet = "~/.config/solana/id.json"
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
 
 [test]
-skip_local_validator = true
+startup_wait = 5000
+shutdown_wait = 2000
+upgradeable = false

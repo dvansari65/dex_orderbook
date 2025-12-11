@@ -3,7 +3,9 @@ import { Program, BN, web3 } from "@coral-xyz/anchor";
 import { Orderbook } from "../target/types/orderbook";
 import { 
   TOKEN_PROGRAM_ID, 
-  createMint // Import this to actually create mints
+  createAssociatedTokenAccount, 
+  createMint, // Import this to actually create mints
+  mintTo
 } from "@solana/spl-token";
 import { assert } from "chai";
 
@@ -12,10 +14,12 @@ describe("orderbook", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.orderbook as Program<Orderbook>;
   const payer = provider.wallet as anchor.Wallet; // Explicit cast for TS
-
+  const marketKeypair = web3.Keypair.generate();
+  let baseMint;
+  let quoteMint;
   it("Initializes the market!", async () => {
     // 1️⃣ Generate Keypairs for all accounts we are initializing
-    const marketKeypair = web3.Keypair.generate();
+    
     const bidsKeypair = web3.Keypair.generate();
     const asksKeypair = web3.Keypair.generate();
     const eventQueueKeypair = web3.Keypair.generate();
@@ -26,7 +30,7 @@ describe("orderbook", () => {
 
     // 2️⃣ Create ACTUAL Token Mints on-chain
     // We cannot just generate a keypair, we must ask the Token Program to create the mint account
-    const baseMint = await createMint(
+     baseMint = await createMint(
       provider.connection,
       payer.payer, // The actual Keypair of the wallet
       payer.publicKey, // Mint authority
@@ -34,7 +38,7 @@ describe("orderbook", () => {
       6 // Decimals
     );
 
-    const quoteMint = await createMint(
+     quoteMint = await createMint(
       provider.connection,
       payer.payer,
       payer.publicKey,
@@ -97,11 +101,70 @@ describe("orderbook", () => {
     const marketAccount = await program.account.market.fetch(
       marketKeypair.publicKey
     );
-
+    console.log("market account",marketAccount)
     assert.equal(marketAccount.admin.toString(), payer.publicKey.toString());
     assert.equal(marketAccount.baseLotSize.toNumber(), 1000);
     assert.equal(marketAccount.quoteLotSize.toNumber(), 1000);
     // vaultSignerNonce is stored as a number/u8 in Rust, so we compare strictly
     assert.equal(marketAccount.vaultSignerNonce, vaultBump);
   });
+
+  it("should place the order",async ()=>{
+    const marketInfo = await program.account.market.fetch(marketKeypair.publicKey);
+    const user = web3.Keypair.generate();
+    // airdrop sol to user
+    const airdropSig = await provider.connection.requestAirdrop(user.publicKey,2*anchor.web3.LAMPORTS_PER_SOL)
+    await provider.connection.confirmTransaction(airdropSig);
+    const userQuoteTokenAccount = await createAssociatedTokenAccount(provider.connection,user,quoteMint,user.publicKey)
+    const userBaseTokenAccount = await createAssociatedTokenAccount(provider.connection,user,baseMint,user.publicKey)
+    await mintTo(provider.connection,user,quoteMint,userQuoteTokenAccount,payer.payer,100_000_000)
+    await mintTo(provider.connection,user,baseMint,userBaseTokenAccount,payer.payer,100_000_000)
+    const [openOrderPda] =  web3.PublicKey.findProgramAddressSync(
+      [
+       Buffer.from("open_order"),
+       marketKeypair.publicKey.toBuffer(),
+       user.publicKey.toBuffer()
+      ],
+      program.programId
+    )
+    // const openOrderAccount = await program.account.openOrders.fetch(openOrderPda)
+   const openOrder = await program.methods 
+                .initializeOpenOrder()
+                .accounts({
+                  owner:user.publicKey,
+                  market:marketKeypair.publicKey,
+                })
+                .signers([user])
+                .rpc()
+    const placeOrderTx = await program.methods    
+                .placeOrder(
+                  new BN(1_000_000),
+                  new BN(23239),
+                  new BN(110),
+                  {limit:{}},
+                  {ask:{}}
+                )
+                .accounts({
+                  owner:user.publicKey,
+                  asks:marketInfo.asks,
+                  bids:marketInfo.bids,
+                  quoteVault:marketInfo.quoteVault,
+                  baseVault:marketInfo.baseVault,
+                  eventQueue:marketInfo.eventQueue,
+                  userBaseVault:userBaseTokenAccount,
+                  userQuoteVault:userQuoteTokenAccount,
+                  market:marketKeypair.publicKey,
+                  openOrder:openOrderPda,
+                  tokenProgram:TOKEN_PROGRAM_ID
+                })
+                .signers([user])
+                .rpc()
+    const openOrderAccount = await program.account.openOrders.fetch(openOrderPda)
+    const asksAccount = await program.account.slab.fetch(marketInfo.asks);
+    console.log("Sell order placed:", {
+      baseLocked: openOrderAccount.baseLocked.toString(),
+      asksCount: asksAccount.leafCount
+    });
+    assert.equal(openOrderAccount.baseLocked.toString(), "1000000");
+  })
 });
