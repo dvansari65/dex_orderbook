@@ -3,7 +3,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
-declare_id!("CGar3YimvFpENuuSnFGqZXMbDc7D76mqu7YTvMftBnsN");
+declare_id!("4uPZkgMLRnDaUX2odfb1ocpGPywHkU2eqM7v8WGJ5Uqb");
 
 pub mod error;
 pub mod events;
@@ -15,6 +15,8 @@ use state::*;
 
 #[program]
 pub mod orderbook {
+    use std::u32;
+
     use crate::error::ErrorCode;
 
     use super::*;
@@ -29,6 +31,16 @@ pub mod orderbook {
         msg!("Initialise market hit...!");
 
         let market = &mut ctx.accounts.market;
+        let asks = &mut ctx.accounts.asks;
+        let bids = &mut ctx.accounts.bids;
+
+        asks.free_list_len = 32;
+        bids.free_list_len = 32;
+        asks.leaf_count = 32;
+        bids.leaf_count = 32;
+        asks.head_index = u32::MAX;
+        bids.head_index = u32::MAX;
+        
         // Admin and tokens
         market.admin = ctx.accounts.admin.key();
         market.base_mint = ctx.accounts.base_mint.key();
@@ -346,20 +358,21 @@ pub mod orderbook {
         msg!("Consumed {} events", to_process);
         Ok(())
     }
+    pub fn initialize_open_order(ctx: Context<InitializeOpenOrder>) -> Result<()> {
+        let open_order = &mut ctx.accounts.open_order;
+        open_order.market =  ctx.accounts.market.key();
+        open_order.owner =  ctx.accounts.owner.key();
+        open_order.base_free = 0;
+        open_order.base_locked = 0;
+        open_order.orders_count = 0;
+        open_order.quote_free = 0;
+        open_order.quote_locked = 0;
+        open_order.orders = Vec::new();
+        Ok(())
+    }
 }
 
-pub fn initialise_open_order(ctx: Context<InitialiseOpenOrder>) -> Result<()> {
-    let open_order = &mut ctx.accounts.open_order;
-    open_order.market =  ctx.accounts.market.key();
-    open_order.owner =  ctx.accounts.owner.key();
-    open_order.base_free = 0;
-    open_order.base_locked = 0;
-    open_order.orders_count = 0;
-    open_order.quote_free = 0;
-    open_order.quote_locked = 0;
-    open_order.orders = Vec::new();
-    Ok(())
-}
+
 // TODO:implement consume event instn  and settle fund instn
 #[derive(Accounts)]
 pub struct InitializeMarket<'info> {
@@ -528,7 +541,7 @@ pub struct ConsumeEvents<'info> {
 }
 
 #[derive(Accounts)]
-pub struct InitialiseOpenOrder<'info> {
+pub struct InitializeOpenOrder<'info> {
     #[account(
         init,
         space = 8 + OpenOrders::INIT_SPACE,
