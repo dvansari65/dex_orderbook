@@ -1,6 +1,7 @@
 import { AnchorProvider, Program, EventParser, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import idl from "./idl/orderbook.json";
+import { Market, Slab } from "./types";
 
 export class EventListener {
     private connection: Connection;
@@ -54,7 +55,7 @@ export class EventListener {
     // async getMarketPda (baseMint:string,quoteMint:string){
     //     const [marketPda] = await 
     // }
-    async fetchMarketState(marketPubKey: string) {
+    async fetchMarketState(marketPubKey: string):Promise<Market | null> {
         try {
             const accountInfo = await this.connection.getAccountInfo(
                 new PublicKey(marketPubKey)
@@ -73,6 +74,35 @@ export class EventListener {
             return marketData;
         } catch (error) {
             console.error("Error fetching market:", error);
+            return null;
+        }
+    }
+    async fetchAskSlabState (slabPubKey:string):Promise<Slab | null> {
+        try {
+            const accountInfo = await this.connection.getAccountInfo(new PublicKey(slabPubKey))
+            if(!accountInfo){
+                throw new Error("Slab account not found!")
+            }
+            const slabData = this.program.coder.accounts.decode("slab",accountInfo.data)
+            if(!slabData){
+                throw new Error("Ask slab account not found!")
+            }
+            return slabData
+        } catch (error) {
+            console.error("Error fetching slab:", error);
+            return null;
+        }
+    }
+    async fetchBidSlabState (bidSlabKey:string):Promise<Slab | null>{
+        try {
+            const accountInfo = await this.connection.getAccountInfo(new PublicKey(bidSlabKey))
+            if(!accountInfo){
+                throw new Error("Bid Slab account not found!")
+            }
+            const bidSlab = this.program.coder.accounts.decode("slab",accountInfo?.data)
+            return bidSlab;
+        } catch (error) {
+            console.error("Error fetching bid slab:", error);
             return null;
         }
     }

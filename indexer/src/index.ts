@@ -1,23 +1,24 @@
 import { EventListener } from "./listener";
 import { InMemoryStorage } from "./storage";
-import { OrderbookEvent, EventType } from "./types";
+import { OrderbookEvent, EventType, Market } from "./types";
 
-const RPC_URL = process.env.RPC_URL || "http://localhost:8899";
-const PROGRAM_ID = process.env.PROGRAM_ID || "CGar3YimvFpENuuSnFGqZXMbDc7D76mqu7YTvMftBnsN";
-const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "2Qo5oTvW32vAv6z57cNK3n5hRvsvm6LF6hzVHfTLBrqZ";
+const RPC_URL =  "http://127.0.0.1:8899";
+const PROGRAM_ID = process.env.PROGRAM_ID || "2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku";
+const MARKET_PUBKEY = "CGXdRE1s7NdB8GM75zY3EaxUSg51cNkisAKrSzqZvAhN";
 
 async function main() {
-  console.log("🚀 Starting indexer...");
-  console.log("📡 RPC:", RPC_URL);
-  console.log("📡 Program:", PROGRAM_ID);
-  console.log("📡 Market:", MARKET_PUBKEY);
+  console.log("Starting indexer...");
+  console.log("RPC:", RPC_URL);
+  console.log("Program:", PROGRAM_ID);
+  console.log("Market:", MARKET_PUBKEY);
 
   const listener = new EventListener(RPC_URL, PROGRAM_ID);
   const storage = new InMemoryStorage();
 
+  let marketData:Market | null = null;
   // Start listening
   await listener.start((event) => {
-    console.log(`📨 Event: ${event.type}`, event.data);
+    console.log(`Event: ${event.type}`, event.data);
 
     try {
       const orderbookEvent: OrderbookEvent = {
@@ -31,28 +32,48 @@ async function main() {
       };
 
       storage.storeEvent(orderbookEvent);
-      console.log("✅ Event stored:", orderbookEvent.eventType);
+      console.log("Event stored:", orderbookEvent.eventType);
     } catch (error) {
-      console.error("❌ Error storing event:", error);
+      console.error(" Error storing event:", error);
     }
   });
-
   // Poll market state
   setInterval(async () => {
     try {
-      const marketData = await listener.fetchMarketState(MARKET_PUBKEY);
+       marketData = await listener.fetchMarketState(MARKET_PUBKEY);
+
       if (marketData) {
+       
         console.log("📊 Market state:", {
-          baseLotSize: marketData.baseLotSize?.toString(),
-          quoteLotSize: marketData.quoteLotSize?.toString(),
-          status: marketData.marketStatus,
+        baseMint: marketData.baseMint.toString(),
+        quoteMint: marketData.quoteMint.toString(),
+        baseVault: marketData.baseVault.toString(),
+        quoteVault: marketData.quoteVault.toString(),
+        bids: marketData.bids.toString(),
+        asks: marketData.asks.toString(),
+        eventQueue: marketData.eventQueue.toString(),
+        baseLotSize: marketData.baseLotSize.toString(),  // BN → string
+        quoteLotSize: marketData.quoteLotSize.toString(),
+        makerFeesBps: marketData.makerFeesBps.toString(),
+        takerFeesBps: marketData.takerFeesBps.toString(),
+        admin: marketData.admin.toString(),
+        vaultSignerNonce: marketData.vaultSignerNonce,
+        marketStatus: marketData.marketStatus,
+        minOrderSize: marketData.minOrderSize.toString(),
+        maxOrdersPerUser: marketData.maxOrdersPerUser,
+        padding: Array.from(marketData.padding),
+        status: marketData.marketStatus,
         });
+      }
+      if (marketData?.asks) {
+        const asks = await listener.fetchAskSlabState(marketData.asks);
+        console.log("asks data:",asks?.nodes[0].clientOrderId.toString())
       }
     } catch (error) {
       console.error("❌ Error fetching market:", error);
     }
-  }, 10000);
-
+  }, 5000);
+  
   console.log("✅ Indexer running!");
 }
 
