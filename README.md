@@ -1,6 +1,6 @@
 <!-- How Indexer interact with database and smart contract! -->
 
-## 🏗️ System Architecture
+##  System Architecture (How indexer interacts with frontend and smart contract)
 
 ```mermaid
 flowchart LR
