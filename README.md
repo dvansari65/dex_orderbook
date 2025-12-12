@@ -1,5 +1,8 @@
 <!-- How Indexer interact with database and smart contract! -->
 
+## 🏗️ System Architecture
+
+```mermaid
 flowchart LR
     A[Solana Blockchain<br>Raw Event Stream] --> B[Indexer Service<br>Ingestion Layer];
     subgraph B[Indexer Service]
@@ -14,3 +17,4 @@ flowchart LR
     
     C --> D[API/WebSocket Layer];
     D --> E[Frontend UI];
+```
