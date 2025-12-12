@@ -3,7 +3,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
-declare_id!("4uPZkgMLRnDaUX2odfb1ocpGPywHkU2eqM7v8WGJ5Uqb");
+declare_id!("2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku");
 
 pub mod error;
 pub mod events;
@@ -36,7 +36,7 @@ pub mod orderbook {
 
         asks.free_list_len = 32;
         bids.free_list_len = 32;
-        asks.leaf_count = 32;
+        asks.leaf_count = 0;
         bids.leaf_count = 32;
         asks.head_index = u32::MAX;
         bids.head_index = u32::MAX;
@@ -47,8 +47,8 @@ pub mod orderbook {
         market.quote_mint = ctx.accounts.quote_mint.key();
 
         // On-chain orderbook accounts
-        market.bids = ctx.accounts.bids.key();
-        market.asks = ctx.accounts.asks.key();
+        market.bids = bids.key();
+        market.asks = asks.key();
         market.event_queue = ctx.accounts.event_queue.key();
 
         // Vaults
@@ -86,6 +86,7 @@ pub mod orderbook {
         let open_order = &mut ctx.accounts.open_order;
         let owner = &mut ctx.accounts.owner;
         let event_queue = &mut ctx.accounts.event_queue;
+        let  order_id =  Clock::get()?.unix_timestamp as u128;
         require!(market.market_status == 1, MarketError::MarketActiveError);
 
         require!(
@@ -95,7 +96,7 @@ pub mod orderbook {
 
         let base_lots = max_base_size / market.base_lot_size;
         let event = Event {
-            order_id: Clock::get()?.unix_timestamp as u128,
+            order_id: order_id,
             event_type: EventType::NewOrder,
             price,
             quantity: base_lots,
@@ -155,7 +156,6 @@ pub mod orderbook {
             Side::Ask => &mut ctx.accounts.asks,
             Side::Bid => &mut ctx.accounts.bids,
         };
-        let order_id = Clock::get()?.unix_timestamp as u128;
 
         Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price)?;
         let created_order = Order {
@@ -418,7 +418,7 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub vault_signer: UncheckedAccount<'info>,
-
+    
     // Admin signing the transaction
     #[account(mut)]
     pub admin: Signer<'info>,
