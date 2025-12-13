@@ -1,42 +1,70 @@
-import express from "express"
-import cors from "cors"
-import { createServer } from "http"
-import { Server } from "socket.io"
-import { InMemoryStorage } from "./storage"
-import dotenv from "dotenv"
-
+import express from "express";
+import cors from "cors";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import dotenv from "dotenv";
+import { EventListener } from "./listener";
 dotenv.config();
-const app = express()
-app.use(cors)
+const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8899";
+const PROGRAM_ID = process.env.PROGRAM_ID || "";
+const MARKET_PUBKEY =
+    process.env.MARKET_PUBKEY || "36QegbcReiokCfEaKYQYbvAvmVFtvai2WFAVSz6yn3T3";
+console.log("market pub key", MARKET_PUBKEY);
 
-const server = createServer(app)
+export const app = express();
+app.use(cors);
+
+const server = createServer(app);
 const io = new Server(server, {
     cors: {
         origin: "*",
-        methods: ["POST", "GET"]
-    }
-})
+        methods: ["POST", "GET"],
+    },
+});
+const clentSubscriptions = new Map<string,any[]>()
 
-let storage: InMemoryStorage;
+const listener = new EventListener(RPC_URL, PROGRAM_ID);
 
-export const setupApi = (storageInstance: InMemoryStorage) => {
-    storage = storageInstance
-}
-
-io.on("connect", (socket) => {
+io.on("connect", async (socket) => {
     console.log("frontend connected:", socket.id);
-    const market = process.env.MARKET_PUBKEY;
-    socket.on("disconnect", () => {
-        console.log('Frontend disconnected:', socket.id);
-    })
 
-})
-export function broadcast(event: string, data: any) {
-    io.emit(event, data);
-}
+    try {
+        const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
+    
+        if (!marketState) {
+          socket.emit("error", { message: "Market not found!" });
+          return;
+        }
+    
+        // Ask aur Bid slab data parallel fetch karo
+        const [askSlabData, bidSlabData] = await Promise.all([
+          listener.fetchAskSlabState(marketState.asks as string),
+          listener.fetchBidSlabState(marketState.bids as string)
+        ]);
+    
+        // Initial snapshot bhejo
+        socket.emit("initial-snapshot", {
+          market: marketState,
+          asks: askSlabData,
+          bids: bidSlabData,
+          success: true,
+          timestamp: Date.now()
+        });
+
+    } catch (error:any) {
+        socket.emit("error",{message:error.message || "Something went wrong!"})
+        return;
+    }
+
+    socket.on("disconnect", () => {
+        console.log("Frontend disconnected:", socket.id);
+    });
+});
+
+
 
 const PORT = 3001;
 server.listen(PORT, () => {
     console.log(`📡 Indexer API: http://localhost:${PORT}`);
     console.log(`🔌 Socket.io: ws://localhost:${PORT}`);
-})
+});
