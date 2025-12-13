@@ -1,7 +1,7 @@
 import { AnchorProvider, Program, EventParser, Idl } from "@coral-xyz/anchor";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { AccountInfo, Connection, PublicKey } from "@solana/web3.js";
 import idl from "./idl/orderbook.json";
-import { Market, Slab } from "./types";
+import { Event, EventQueue, Market, Slab } from "../types/market";
 
 export class EventListener {
     private connection: Connection;
@@ -22,28 +22,43 @@ export class EventListener {
             new PublicKey(programId),
             this.program.coder
         );
+        console.log("this.eventParser:",this.eventParser)
     }
 
     async start(callback: (event: any) => void) {
-        console.log("🎧 Listening...");
-
+        console.log("🎧Listening...");
+        console.log("this.program.programId:",this.program.programId);
+        
         this.connection.onLogs(
             this.program.programId,
             (logs) => {
-                if (logs.err) return;
-
-                const events = Array.from(this.eventParser.parseLogs(logs.logs));
-
-                if (events.length > 0) {
-                    console.log("✅ Events found:", events.length);
-
-                    events.forEach((event) => {
-                        console.log("📨 Event:", event.name, event.data);
-                        callback({
-                            type: event.name,
-                            data: event.data,
+                console.log("=== RAW LOGS START ===");
+                console.log("Signature:", logs.signature);
+                console.log("Error:", logs.err);
+                logs.logs.forEach((log, i) => {
+                    console.log(`[${i}] ${log}`);
+                });
+                console.log("=== RAW LOGS END ===");
+        
+                if (logs.err) {
+                    console.log("Transaction failed, skipping");
+                    return;
+                }
+        
+                try {
+                    const events = Array.from(this.eventParser.parseLogs(logs.logs));
+                    console.log("Parsed events count:", events.length);
+                    
+                    if (events.length > 0) {
+                        events.forEach((event) => {
+                            console.log("📨 Event:", event.name, event.data);
+                            callback(event);
                         });
-                    });
+                    } else {
+                        console.log("⚠️ No events parsed from logs");
+                    }
+                } catch (error) {
+                    console.error("Error parsing events:", error);
                 }
             },
             "confirmed"
@@ -104,6 +119,44 @@ export class EventListener {
         } catch (error) {
             console.error("Error fetching bid slab:", error);
             return null;
+        }
+    }
+    async fetchEventQueue (eventPubKey:string):Promise<EventQueue | null>{
+        try {
+            const accountInfo = await this.connection.getAccountInfo(new PublicKey(eventPubKey))
+            if(!accountInfo){
+                throw new Error("account info not found!")
+            }
+            const eventQueue = this.program.coder.accounts.decode("eventQueue",accountInfo.data)
+            console.log("event data:",eventQueue)
+            return eventQueue
+        } catch (error) {
+            console.error("Error fetching  event account:", error);
+            return null;
+        }
+    }
+
+    async subscribedToAccount (
+        accountPubKey:string,
+        callback:(accountInfo:AccountInfo<Buffer>)=>void
+    ):Promise<number> {
+        const pubkey = new PublicKey(accountPubKey)
+        const subscriptionId = this.connection.onAccountChange(
+            pubkey,
+            (accountInfo,context)=>{
+                console.log(`🔔 Account ${accountPubKey.slice(0,8)}... updated at slot ${context.slot}`);
+                callback(accountInfo)
+            },
+            "confirmed"
+        )
+        return subscriptionId
+    }
+    async unsubscribe (subscriptionId: number):Promise<void>{
+        try {
+            await this.connection.removeAccountChangeListener(subscriptionId)
+            console.log(`🔕 Unsubscribed: ${subscriptionId}`);
+        } catch (error) {
+            console.error("Error unsubscribing:", error);
         }
     }
 }
