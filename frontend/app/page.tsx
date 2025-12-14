@@ -1,8 +1,18 @@
-import Image from "next/image";
+"use client"
+import Navbar from "@/components/navbar";
+import { useSocket } from "@/providers/SocketProvider";
+import { useEffect } from "react";
 
 export default function Home() {
+  const socket = useSocket()
+  useEffect(() => {
+    socket.on("market-state", (data: any) => {
+      console.log("market state:", data)
+    })
+  }, [socket])
   return (
     <div className="overflow-y-auto">
+      <Navbar />
       <section className="w-full flex justify-center pt-32 pb-36">
         <div className="w-[92%] max-w-[900px] text-center">
           {/* HEADING */}
@@ -97,32 +107,42 @@ export default function Home() {
 
             {/* RIGHT STATS */}
             <div className="w-full lg:w-[80%] flex flex-col sm:flex-row gap-8 sm:gap-4 md:gap-8 lg:gap-0 sm:justify-between sm:items-center mt-8 lg:mt-5">
-  <div className="flex flex-col items-center sm:items-center lg:items-start">
-    <p className="text-[#6F625B] text-sm text-center sm:text-left">
-      Protocol fees as low as
-    </p>
-    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
-      0.02%
-    </p>
-    <p className="text-[#9A928C] text-sm text-center sm:text-left">Per trade</p>
-  </div>
+              <div className="flex flex-col items-center sm:items-center lg:items-start">
+                <p className="text-[#6F625B] text-sm text-center sm:text-left">
+                  Protocol fees as low as
+                </p>
+                <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+                  0.02%
+                </p>
+                <p className="text-[#9A928C] text-sm text-center sm:text-left">
+                  Per trade
+                </p>
+              </div>
 
-  <div className="flex flex-col items-center sm:items-center lg:items-start">
-    <p className="text-[#6F625B] text-sm text-center sm:text-left">Network fees</p>
-    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
-      $0.0002
-    </p>
-    <p className="text-[#9A928C] text-sm text-center sm:text-left">Per transaction</p>
-  </div>
+              <div className="flex flex-col items-center sm:items-center lg:items-start">
+                <p className="text-[#6F625B] text-sm text-center sm:text-left">
+                  Network fees
+                </p>
+                <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+                  $0.0002
+                </p>
+                <p className="text-[#9A928C] text-sm text-center sm:text-left">
+                  Per transaction
+                </p>
+              </div>
 
-  <div className="flex flex-col items-center sm:items-center lg:items-start">
-    <p className="text-[#6F625B] text-sm text-center sm:text-left">Average block time</p>
-    <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
-      0.5 sec
-    </p>
-    <p className="text-[#6F625B] text-sm text-center sm:text-left">Only on Solana</p>
-  </div>
-</div>
+              <div className="flex flex-col items-center sm:items-center lg:items-start">
+                <p className="text-[#6F625B] text-sm text-center sm:text-left">
+                  Average block time
+                </p>
+                <p className="text-[#2B1B12] text-[36px] sm:text-[52px] md:text-[56px] lg:text-[60px] font-medium text-center sm:text-left">
+                  0.5 sec
+                </p>
+                <p className="text-[#6F625B] text-sm text-center sm:text-left">
+                  Only on Solana
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>

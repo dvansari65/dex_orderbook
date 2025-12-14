@@ -1,32 +1,14 @@
-import { io, Socket } from "socket.io-client";
+import io from "socket.io-client";
 
-let socket: Socket | null = null;
+let socket : ReturnType<typeof io>
 
-export const connectToIndexer = () => {
-    if (!socket) {
-        socket = io(process.env.NEXT_SOCKET_URL || "http://localhost:3001", {
-            transports: ["websocket"],
-            autoConnect: true,
-        });
-        socket.on("connect", () => {
-            console.log("Connected to indexer:", socket?.id);
-        });
-        socket.on("disconnect", () => {
-            console.log("Disconnected from indexer");
-        });
-
-        return socket;
-    }
+export const initialiseSocket = ()=>{
+    socket = io(process.env.NEXT_SOCKET_URL || "http://localhost:3001")
     return socket;
-};
+}
 
-export const getSocket = () => {
+
+export const getSocket = ()=>{
+    if(!socket) throw new Error("socket not found!")
     return socket;
-};
-
-export function disconnectIndexer() {
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
 }

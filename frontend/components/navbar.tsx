@@ -1,8 +1,20 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { v4 as uuid } from "uuid"
+import { toast } from "sonner"
+function Navbar() {
+  const router = useRouter()
+  const tradeId = uuid()
+  const startTrading = () => {
 
-export default function Navbar() {
+    if (!tradeId) {
+      toast.error("Trade ID not found!")
+      return;
+    }
+    router.push(`/Trading/${tradeId as string}`)
+  }
   return (
     <nav
       className="
@@ -58,6 +70,7 @@ export default function Navbar() {
 
         {/* RIGHT: CTA */}
         <button
+          onClick={startTrading}
           className="
             bg-[#FF7A2F]
             text-white
@@ -76,3 +89,5 @@ export default function Navbar() {
     </nav>
   );
 }
+
+export default Navbar
