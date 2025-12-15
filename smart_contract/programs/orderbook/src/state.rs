@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Market {
+    pub next_order_id:u64,          // order id better than unix time stamp
     pub base_mint: Pubkey,          // Mint of base token (e.g., SOL)
     pub quote_mint: Pubkey,         // Mint of quote token (e.g., USDC)
     
@@ -123,3 +124,5 @@ pub enum EventType {
     Cancel = 2,
     PartialFill = 3,
 }
+
+
