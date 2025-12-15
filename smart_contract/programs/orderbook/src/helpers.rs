@@ -5,13 +5,13 @@ use anchor_lang::prelude::*;
 
 use crate::error::{EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::events::OrderFilledEvent;
-use crate::state::EventType::*;
+use crate::state::{EventType::*, OrderType};
 
 use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
 impl Slab {
     pub fn insert_order(
         &mut self,
-        order_id: u128,
+        order_id: u64,
         quantity: u64,
         owner: Pubkey,
         price: u64,
@@ -96,7 +96,7 @@ impl Slab {
         
         Ok(())
     }
-    pub fn remove_order(&mut self, order_id: &u128) -> Result<Node> {
+    pub fn remove_order(&mut self, order_id: &u64) -> Result<Node> {
 
         let position = self
             .nodes
@@ -122,7 +122,7 @@ impl Slab {
             .cloned()
             .collect()
     }
-    pub fn get_order_by_id (&mut self,order_id:u128)->Result<Option<&Node>> {
+    pub fn get_order_by_id (&mut self,order_id:u64)->Result<Option<&Node>> {
         let position = self
                                 .nodes
                                 .iter()
@@ -136,21 +136,29 @@ impl Slab {
 }
 
 impl OpenOrders {
-    pub fn push_order(&mut self, order: Order) -> Result<()> {
-        if self.orders.len() >= 1024 {
+    pub fn push_order(&mut self, order: Order) -> Result<(Order)> {
+        const MAX_ORDERS: usize = 16;
+        if self.orders.len() >= MAX_ORDERS {
             msg!("Orders full!");
             return Err(OrderError::OrderFull.into());
         }
+        if order.price == 0 {
+            msg!("Order price should be greater than 0!");
+            return Err(OpenOrderError::PriceIsTooLow.into());
+        }
+
         self.orders.push(order);
-        self.orders_count += 1;
-        Ok(())
+        self.orders_count = self.orders_count
+                            .checked_add(1)
+                            .ok_or(OpenOrderError::OrderOverFlow)?;
+        Ok(order)
     }
 
     pub fn update_open_order_assets() -> Result<()> {
         Ok(())
     }
 
-    pub fn remove_order(&mut self,order_id:u128)->Result<&mut OpenOrders>{
+    pub fn remove_order(&mut self,order_id:u64)->Result<&mut OpenOrders>{
        let position = self
                             .orders
                             .iter()
@@ -170,15 +178,15 @@ pub fn match_orders(
     while !bids.nodes.is_empty() && !asks.nodes.is_empty() {
         let best_ask = asks.nodes.first().ok_or(MarketError::NoOrders)?;
         let best_bid = bids.nodes.first().ok_or(MarketError::NoOrders)?;
+        let fill_qty = std::cmp::min(best_ask.quantity, best_bid.quantity);
+        let fill_price = best_ask.price;
 
         if best_ask.price > best_bid.price {
             break;
         }
-        let fill_qty = std::cmp::min(best_ask.quantity, best_bid.quantity);
-        let fill_price = best_ask.price;
-
+       
         let event = Event {
-            order_id:best_ask.client_order_id as u128,
+            order_id:best_ask.client_order_id,
             event_type:NewOrder,
             price:fill_price,
             quantity:fill_qty,
@@ -186,6 +194,7 @@ pub fn match_orders(
             taker:best_bid.owner,
             timestamp:Clock::get()?.unix_timestamp as u64
         };
+
         event_queue.events.push(event.clone());
         emit!(event);
 
@@ -204,7 +213,7 @@ pub fn match_orders(
     Ok(())
 }
 impl EventQueue {
-    pub fn get_event_by_order_id (&mut self , order_id: &u128)->Result<Option<&Event>>{
+    pub fn get_event_by_order_id (&mut self , order_id: &u64)->Result<Option<&Event>>{
         let event_position = self
                                         .events
                                         .iter()
