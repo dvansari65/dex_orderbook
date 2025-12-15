@@ -99,7 +99,7 @@ pub mod orderbook {
             order_id: order_id,
             event_type: EventType::NewOrder,
             price,
-            quantity: base_lots,
+            quantity: max_base_size,
             maker: owner.key(),       // Owner who placed the order
             taker: Pubkey::default(), // No taker yet for new order
             timestamp: Clock::get()?.unix_timestamp as u64,
