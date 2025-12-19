@@ -3,11 +3,14 @@ use std::{clone, u32};
 
 use anchor_lang::prelude::*;
 
-use crate::error::{EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::error::{
+    EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError,
+};
 use crate::events::OrderFilledEvent;
-use crate::state::{EventType::*, OrderType};
+use crate::state::{EventType::*, Market, OrderType};
 
 use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
+use crate::states::order_schema::enums::Side;
 impl Slab {
     pub fn insert_order(
         &mut self,
@@ -17,8 +20,8 @@ impl Slab {
         price: u64,
     ) -> Result<()> {
         require!(self.nodes.len() < 32, OrderError::OrderbookFull);
-        require!(self.free_list_len > 0,OrderError::NoSpace);
-       
+        require!(self.free_list_len > 0, OrderError::NoSpace);
+
         let new_node = Node {
             price,
             quantity,
@@ -31,7 +34,7 @@ impl Slab {
         };
 
         let insert_position = self.find_insert_position(price)?;
-        msg!("insert position:{:?}",insert_position);
+        msg!("insert position:{:?}", insert_position);
         if insert_position == self.nodes.len() {
             self.nodes.push(new_node);
             self.free_list_len -= 1;
@@ -41,7 +44,7 @@ impl Slab {
             self.free_list_len -= 1;
         }
         self.update_links(insert_position)?;
-        msg!("freel list len:{:?}",self.free_list_len);
+        msg!("freel list len:{:?}", self.free_list_len);
         self.leaf_count += 1;
         msg!(
             "Order inserted: {} @ price {} (total orders: {})",
@@ -73,7 +76,7 @@ impl Slab {
     }
     pub fn update_links_after_removing(&mut self, removed_index: usize) -> Result<()> {
         let len = self.nodes.len();
-        
+
         // Boundary checks
         if removed_index >= len && len > 0 {
             // If removed_index is at the end, update the previous node
@@ -83,7 +86,7 @@ impl Slab {
             }
             return Ok(());
         }
-        
+
         // Update links for nodes around the removed position
         if removed_index > 0 && removed_index < len {
             // Link previous to current (which shifted down)
@@ -93,11 +96,10 @@ impl Slab {
             // First node was removed, update the new first node
             self.nodes[0].prev = u32::MAX; // or 0, depending on your sentinel
         }
-        
+
         Ok(())
     }
     pub fn remove_order(&mut self, order_id: &u64) -> Result<Node> {
-
         let position = self
             .nodes
             .iter()
@@ -122,12 +124,12 @@ impl Slab {
             .cloned()
             .collect()
     }
-    pub fn get_order_by_id (&mut self,order_id:u64)->Result<Option<&Node>> {
+    pub fn get_order_by_id(&mut self, order_id: u64) -> Result<Option<&Node>> {
         let position = self
-                                .nodes
-                                .iter()
-                                .position(|n| n.order_id == order_id)
-                                .ok_or(SlabError::OrderNotFound)?;
+            .nodes
+            .iter()
+            .position(|n| n.order_id == order_id)
+            .ok_or(SlabError::OrderNotFound)?;
 
         let order = self.nodes.get(position);
         msg!("order find by ID: {:?}", order);
@@ -148,9 +150,10 @@ impl OpenOrders {
         }
 
         self.orders.push(order);
-        self.orders_count = self.orders_count
-                            .checked_add(1)
-                            .ok_or(OpenOrderError::OrderOverFlow)?;
+        self.orders_count = self
+            .orders_count
+            .checked_add(1)
+            .ok_or(OpenOrderError::OrderOverFlow)?;
         Ok(order)
     }
 
@@ -158,12 +161,12 @@ impl OpenOrders {
         Ok(())
     }
 
-    pub fn remove_order(&mut self,order_id:u64)->Result<&mut OpenOrders>{
-       let position = self
-                            .orders
-                            .iter()
-                            .position(|n| n.order_id == order_id)
-                            .ok_or(OpenOrderError::OrderNotFound)?;
+    pub fn remove_order(&mut self, order_id: u64) -> Result<&mut OpenOrders> {
+        let position = self
+            .orders
+            .iter()
+            .position(|n| n.order_id == order_id)
+            .ok_or(OpenOrderError::OrderNotFound)?;
         self.orders.remove(position);
         self.orders_count -= 1;
         Ok(self)
@@ -171,55 +174,35 @@ impl OpenOrders {
 }
 
 pub fn match_orders(
+    side: Side,
+    order_type: &OrderType,
+    order: &mut Order,
     asks: &mut Slab,
     bids: &mut Slab,
-    event_queue:&mut EventQueue
+    market_context: &mut Market,
 ) -> Result<()> {
-    while !bids.nodes.is_empty() && !asks.nodes.is_empty() {
-        let best_ask = asks.nodes.first().ok_or(MarketError::NoOrders)?;
-        let best_bid = bids.nodes.first().ok_or(MarketError::NoOrders)?;
-        let fill_qty = std::cmp::min(best_ask.quantity, best_bid.quantity);
-        let fill_price = best_ask.price;
+    let (same_side_slab, opposite_slab) = match side {
+        Side::Ask => (asks as *mut Slab, bids as *mut Slab),
+        Side::Bid => (bids as *mut Slab, asks as *mut Slab),
+    };
 
-        if best_ask.price > best_bid.price {
-            break;
-        }
-       
-        let event = Event {
-            order_id:best_ask.client_order_id,
-            event_type:NewOrder,
-            price:fill_price,
-            quantity:fill_qty,
-            maker:best_ask.owner,
-            taker:best_bid.owner,
-            timestamp:Clock::get()?.unix_timestamp as u64
-        };
-
-        event_queue.events.push(event.clone());
-        emit!(event);
-
-        asks.nodes[0].quantity -= fill_qty;
-        bids.nodes[0].quantity -= fill_qty;
-        
-        if bids.nodes[0].quantity == 0 {
-            bids.nodes.remove(0);
-            bids.leaf_count -= 1;
-        }
-        if asks.nodes[0].quantity == 0 {
-            asks.nodes.remove(0);
-            asks.leaf_count -= 1;
+    unsafe {
+        while !(*same_side_slab).nodes.is_empty() && !(*opposite_slab).nodes.is_empty() {
+            let best_opposite = (*opposite_slab).nodes.first().unwrap();
+            // Your matching logic here
         }
     }
+    
     Ok(())
 }
 impl EventQueue {
-    pub fn get_event_by_order_id (&mut self , order_id: &u64)->Result<Option<&Event>>{
+    pub fn get_event_by_order_id(&mut self, order_id: &u64) -> Result<Option<&Event>> {
         let event_position = self
-                                        .events
-                                        .iter()
-                                        .position(|n| n.order_id == *order_id)
-                                        .ok_or(EventError::OrderNotFound)?;
-                                        
+            .events
+            .iter()
+            .position(|n| n.order_id == *order_id)
+            .ok_or(EventError::OrderNotFound)?;
+
         let event = self.events.get(event_position);
         Ok(event)
     }

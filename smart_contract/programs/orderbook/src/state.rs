@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use anchor_lang::{AnchorSerialize, AnchorDeserialize};
+use crate::states::order_schema::{self, enums::Side};
 
 #[account]
 #[derive(InitSpace)]
@@ -49,7 +51,7 @@ pub struct Node {
     pub owner: Pubkey,         // User who placed the order
     pub client_order_id: u64,  // Optional client reference
     pub timestamp: i64,        // Unix timestamp of order placement
-    pub order_id:u128,
+    pub order_id:u64,
 
     pub next: u32,             // Next node index (linked list)
     pub prev: u32,             // Previous node index
@@ -70,7 +72,7 @@ pub struct EventQueue {
 #[repr(C)]
 #[derive(Clone , InitSpace)]
 pub struct Event {
-    pub order_id : u128 , 
+    pub order_id : u64 , 
     pub event_type : EventType ,
     pub price : u64,
     pub quantity: u64,
@@ -79,7 +81,7 @@ pub struct Event {
     pub timestamp : u64
 }
 
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,InitSpace,Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug)]
 pub enum OrderType {
     Limit,
     ImmediateOrCancel,
@@ -100,29 +102,26 @@ pub struct OpenOrders {
     pub orders_count: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace,Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug)]
 pub struct Order {
     pub order_type:OrderType,
-    pub order_id: u128,
+    pub order_id: u64,
     pub side: Side,
     pub price: u64,
     pub quantity: u64,
     pub client_order_id: u64,
 }
 
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,PartialEq,Eq,InitSpace,Debug)]
-pub enum Side {
-    Bid,
-    Ask
-}
 
 #[repr(u8)]
-#[derive(AnchorDeserialize,AnchorSerialize,Clone,Copy,PartialEq,Eq,InitSpace,Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
 pub enum EventType {
     NewOrder = 0,
     Fill = 1,
-    Cancel = 2,
-    PartialFill = 3,
+    PartialFill = 2,
+    Cancel = 3,
+    TimeInForce = 4,
+    FeePaid = 5,
 }
 
 

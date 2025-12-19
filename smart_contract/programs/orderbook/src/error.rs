@@ -23,13 +23,19 @@ pub enum MarketError {
     #[msg("Value overflowed!")]
     MathOverflow,
     #[msg("No orders")]
-    NoOrders
+    NoOrders,
+    #[msg("Order id overflow!")]
+    OrderIdOverFlow
 }
 
 #[error_code]
 pub enum OpenOrderError {
     #[msg("Order not found!")]
-    OrderNotFound
+    OrderNotFound,
+    #[msg("Order overflow error!")]
+    OrderOverFlow,
+    #[msg("Price should not be 0")]
+    PriceIsTooLow
 }
 
 

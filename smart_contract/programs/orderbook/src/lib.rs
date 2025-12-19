@@ -3,21 +3,23 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
+
 declare_id!("2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku");
 
 pub mod error;
 pub mod events;
 pub mod helpers;
 pub mod state;
+pub mod states;
 use error::*;
-use helpers::*;
+
 use state::*;
 
 #[program]
 pub mod orderbook {
     use std::u32;
 
-    use crate::error::ErrorCode;
+    use crate::{error::ErrorCode, states::order_schema::enums::Side};
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -40,6 +42,8 @@ pub mod orderbook {
         bids.leaf_count = 32;
         asks.head_index = u32::MAX;
         bids.head_index = u32::MAX;
+
+        market.next_order_id = 0;
         
         // Admin and tokens
         market.admin = ctx.accounts.admin.key();
@@ -86,7 +90,10 @@ pub mod orderbook {
         let open_order = &mut ctx.accounts.open_order;
         let owner = &mut ctx.accounts.owner;
         let event_queue = &mut ctx.accounts.event_queue;
-        let  order_id =  Clock::get()?.unix_timestamp as u128;
+        let  order_id =  market.next_order_id;
+        market.next_order_id = market.next_order_id
+                                .checked_add(1)
+                                .ok_or(MarketError::OrderIdOverFlow)?;
         require!(market.market_status == 1, MarketError::MarketActiveError);
 
         require!(
@@ -95,6 +102,15 @@ pub mod orderbook {
         );
 
         let base_lots = max_base_size / market.base_lot_size;
+        
+        
+        if matches!(order_type, OrderType::ImmediateOrCancel) {
+            // match_orders(
+            //     &mut ctx.accounts.asks,
+            //     &mut ctx.accounts.bids,
+            //     event_queue,
+            // )?;
+        }
         let event = Event {
             order_id: order_id,
             event_type: EventType::NewOrder,
@@ -106,6 +122,22 @@ pub mod orderbook {
         };
         emit!(event);
         EventQueue::insert_event(event_queue, &event)?;
+        let slab = match side {
+            Side::Ask => &mut ctx.accounts.asks,
+            Side::Bid => &mut ctx.accounts.bids,
+        };
+
+        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price)?;
+        let created_order = Order {
+            order_type,
+            side,
+            quantity: base_lots,
+            order_id,
+            client_order_id,
+            price,
+        };
+
+        let pushed_order = OpenOrders::push_order(open_order, created_order)?;
         match side {
             Side::Bid => {
                 let amount_to_lock = price
@@ -152,32 +184,10 @@ pub mod orderbook {
             }
         }
 
-        let slab = match side {
-            Side::Ask => &mut ctx.accounts.asks,
-            Side::Bid => &mut ctx.accounts.bids,
-        };
-
-        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price)?;
-        let created_order = Order {
-            order_type,
-            side,
-            quantity: base_lots,
-            order_id,
-            client_order_id,
-            price,
-        };
-
-        OpenOrders::push_order(&mut ctx.accounts.open_order, created_order)?;
-        if matches!(order_type, OrderType::ImmediateOrCancel) {
-            match_orders(
-                &mut ctx.accounts.asks,
-                &mut ctx.accounts.bids,
-                &mut ctx.accounts.event_queue,
-            )?;
-        }
+        
         Ok(())
     }
-    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u128) -> Result<()> {
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
         let open_order = &mut ctx.accounts.open_order;
         let slab = &mut ctx.accounts.slab;
         let market = &mut ctx.accounts.market;
@@ -189,7 +199,7 @@ pub mod orderbook {
         let order_position = open_order
             .orders
             .iter()
-            .position(|n| n.order_id == order_id as u128)
+            .position(|n| n.order_id == order_id)
             .ok_or(OpenOrderError::OrderNotFound)?;
         let order = open_order.orders.get(order_position).unwrap();
         let order_from_event = event_queue
@@ -283,7 +293,7 @@ pub mod orderbook {
         }
         let removed_node = slab.remove_order(&order_id)?;
         msg!(" order removed from the slab :{:?}", removed_node);
-        let returned_open_order = open_order.remove_order(order_id as u128)?;
+        let returned_open_order = open_order.remove_order(order_id)?;
 
         msg!(
             "open order after deleting the order:{:?}",
