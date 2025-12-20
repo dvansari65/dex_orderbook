@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::{AnchorSerialize, AnchorDeserialize};
+use crate::events::OrderFillEvent;
 use crate::states::order_schema::{self, enums::Side};
 
 #[account]
@@ -52,33 +53,9 @@ pub struct Node {
     pub client_order_id: u64,  // Optional client reference
     pub timestamp: i64,        // Unix timestamp of order placement
     pub order_id:u64,
-
+    pub order_status : OrderStatus, //order status which can be filled or partially filled
     pub next: u32,             // Next node index (linked list)
     pub prev: u32,             // Previous node index
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct EventQueue {
-    pub tail : u32,     // oldest unread event
-    pub header : u32,   // next write index
-    pub count : u32 ,   // tells the length of the queue
-
-    #[max_len(32)]
-    pub events : Vec<Event>
-}
-
-#[event]
-#[repr(C)]
-#[derive(Clone , InitSpace)]
-pub struct Event {
-    pub order_id : u64 , 
-    pub event_type : EventType ,
-    pub price : u64,
-    pub quantity: u64,
-    pub maker : Pubkey,  // maker which provides liquidity
-    pub taker : Pubkey,  // taker which removes liquidity
-    pub timestamp : u64
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug)]
@@ -110,18 +87,53 @@ pub struct Order {
     pub price: u64,
     pub quantity: u64,
     pub client_order_id: u64,
+    pub order_status:OrderStatus
 }
-
 
 #[repr(u8)]
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+pub enum OrderStatus {
+    Fill = 1,
+    PartialFill = 2,
+}
+
+
+// Event queue structures for on-chain storage
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum EventType {
-    NewOrder = 0,
+    Place = 0,
     Fill = 1,
     PartialFill = 2,
     Cancel = 3,
-    TimeInForce = 4,
-    FeePaid = 5,
+    Reduce = 4,
+    Evict = 5,
+    Expire = 6,
+    FeeCollected = 7,
+    TimeInForce = 8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Debug)]
+pub struct QueueEvent {
+    pub event_type: EventType,
+    pub order_id: u64,
+    pub owner: Pubkey,
+    pub counterparty: Pubkey,
+    pub side: Side,
+    pub price: u64,
+    pub base_quantity: u64,
+    pub client_order_id: u64,
+    pub timestamp: i64,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct EventQueue {
+    pub head: u32,
+    pub tail: u32,
+    pub count: u32,
+    #[max_len(32)]
+    pub events: Vec<QueueEvent>,
 }
 
 
