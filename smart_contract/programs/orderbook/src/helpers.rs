@@ -6,8 +6,8 @@ use anchor_lang::prelude::*;
 use crate::error::{
     EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError,
 };
-use crate::events::OrderFilledEvent;
-use crate::state::{EventType::*, Market, OrderType};
+use crate::events::{OrderFillEvent, OrderFilledEvent};
+use crate::state::{EventType::*, Market, OrderStatus, OrderType};
 
 use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
@@ -18,6 +18,7 @@ impl Slab {
         quantity: u64,
         owner: Pubkey,
         price: u64,
+        order_status: OrderStatus,
     ) -> Result<()> {
         require!(self.nodes.len() < 32, OrderError::OrderbookFull);
         require!(self.free_list_len > 0, OrderError::NoSpace);
@@ -31,6 +32,7 @@ impl Slab {
             timestamp: Clock::get()?.unix_timestamp,
             next: u32::MAX,
             prev: u32::MAX,
+            order_status,
         };
 
         let insert_position = self.find_insert_position(price)?;
@@ -173,26 +175,83 @@ impl OpenOrders {
     }
 }
 
-pub fn match_orders(
-    side: Side,
-    order_type: &OrderType,
-    order: &mut Order,
-    asks: &mut Slab,
-    bids: &mut Slab,
-    market_context: &mut Market,
-) -> Result<()> {
-    let (same_side_slab, opposite_slab) = match side {
-        Side::Ask => (asks as *mut Slab, bids as *mut Slab),
-        Side::Bid => (bids as *mut Slab, asks as *mut Slab),
+pub fn match_orders(side: Side, order: &mut Order, asks: &mut Slab, bids: &mut Slab) -> Result<()> {
+    // Determine opposite slab
+    let (opposite_slab, same_side_slab) = match side {
+        Side::Ask => (bids, asks),
+        Side::Bid => (asks, bids),
     };
 
-    unsafe {
-        while !(*same_side_slab).nodes.is_empty() && !(*opposite_slab).nodes.is_empty() {
-            let best_opposite = (*opposite_slab).nodes.first().unwrap();
-            // Your matching logic here
+    while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
+        let best_opposite = opposite_slab.nodes.first_mut().unwrap();
+
+        // Price check
+        if (side == Side::Ask && order.price > best_opposite.price)
+            || (side == Side::Bid && order.price < best_opposite.price)
+        {
+            break;
+        }
+
+        let order_quantity = order.quantity;
+        let fill_qty = best_opposite.quantity.min(order_quantity);
+        // let order_from_open_order = open_order.orders.
+        order.quantity = order
+            .quantity
+            .checked_sub(fill_qty)
+            .ok_or(OrderError::UnderFlow)?;
+
+        best_opposite.quantity = best_opposite
+            .quantity
+            .checked_sub(fill_qty)
+            .ok_or(OrderError::UnderFlow)?;
+
+        let slab_order_node = same_side_slab
+            .get_order_by_id(order.order_id)
+            .unwrap()
+            .ok_or(OrderError::OrderNotFound)?;
+
+        let best_opposite_id = best_opposite.order_id;
+        let best_opposite_owner = best_opposite.owner;
+
+        if best_opposite.quantity == 0 {
+            best_opposite.order_status = OrderStatus::Fill;
+
+            opposite_slab.remove_order(&best_opposite_id)?;
+
+            let event = OrderFillEvent {
+                maker: slab_order_node.owner,
+                taker:best_opposite_owner,
+                maker_order_id: order.order_id,
+                side,
+                price: order.price,
+                base_lots_filled: fill_qty,
+                base_lots_remaining: 0,
+                timestamp: Clock::get()?.unix_timestamp,
+            };
+            emit!(event);
+        } else {
+            // updating the slab order status
+            best_opposite.order_status = OrderStatus::PartialFill;
+
+            let event = OrderFillEvent {
+                maker: slab_order_node.owner,
+                taker: best_opposite_owner,
+                maker_order_id: order.order_id,
+                side,
+                price: order.price,
+                base_lots_filled: fill_qty,
+                base_lots_remaining: order.quantity,
+                timestamp: Clock::get()?.unix_timestamp,
+            };
+            emit!(event);
+        }
+        // If inflight order is fully filled, break
+        if order.quantity == 0 {
+            order.order_status = OrderStatus::Fill;
+            break;
         }
     }
-    
+
     Ok(())
 }
 impl EventQueue {
