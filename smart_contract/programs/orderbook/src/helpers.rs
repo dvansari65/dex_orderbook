@@ -1,15 +1,15 @@
 use std::ptr::null;
 use std::{clone, u32};
 
-use anchor_lang::prelude::*;
+use anchor_lang::{Event, prelude::*};
 
 use crate::error::{
     EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError,
 };
-use crate::events::{OrderFillEvent, OrderFilledEvent};
-use crate::state::{EventType::*, Market, OrderStatus, OrderType};
+use crate::events::*;
+use crate::state::{ EventQueue, EventType, Market, OrderStatus, OrderType, QueueEvent};
 
-use crate::state::{Event, EventQueue, Node, OpenOrders, Order, Slab};
+use crate::state::{ Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
 impl Slab {
     pub fn insert_order(
@@ -175,31 +175,49 @@ impl OpenOrders {
     }
 }
 
-pub fn match_orders(side: Side, order: &mut Order, asks: &mut Slab, bids: &mut Slab) -> Result<()> {
-    // Determine opposite slab
+pub struct MatchResult {
+    pub filled_quantity: u64,
+    pub remaining_quantity: u64,
+    pub order_status: OrderStatus,
+    pub total_quote_qty: u64,
+}
+
+pub fn match_orders(
+    side: Side, 
+    order: &mut Order, 
+    asks: &mut Slab, 
+    bids: &mut Slab,
+    event_queue  :&mut EventQueue
+) -> Result<MatchResult> {
     let (opposite_slab, same_side_slab) = match side {
         Side::Ask => (bids, asks),
         Side::Bid => (asks, bids),
     };
 
+    let initial_quantity = order.quantity;
+    let mut total_quote_qty = 0u64;
+
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         let best_opposite = opposite_slab.nodes.first_mut().unwrap();
-
-        // Price check
+        
         if (side == Side::Ask && order.price > best_opposite.price)
             || (side == Side::Bid && order.price < best_opposite.price)
         {
             break;
         }
 
-        let order_quantity = order.quantity;
-        let fill_qty = best_opposite.quantity.min(order_quantity);
-        // let order_from_open_order = open_order.orders.
+        let fill_qty = best_opposite.quantity.min(order.quantity);
+        let quote_qty = fill_qty.checked_mul(best_opposite.price)
+            .ok_or(OrderError::OverFlow)?;
+        
+        total_quote_qty = total_quote_qty.checked_add(quote_qty)
+            .ok_or(OrderError::OverFlow)?;
+
         order.quantity = order
             .quantity
             .checked_sub(fill_qty)
             .ok_or(OrderError::UnderFlow)?;
-
+            
         best_opposite.quantity = best_opposite
             .quantity
             .checked_sub(fill_qty)
@@ -212,50 +230,82 @@ pub fn match_orders(side: Side, order: &mut Order, asks: &mut Slab, bids: &mut S
 
         let best_opposite_id = best_opposite.order_id;
         let best_opposite_owner = best_opposite.owner;
+        let is_filled = best_opposite.quantity == 0;
 
-        if best_opposite.quantity == 0 {
+        if is_filled {
             best_opposite.order_status = OrderStatus::Fill;
-
+            drop(best_opposite);
+            
             opposite_slab.remove_order(&best_opposite_id)?;
-
-            let event = OrderFillEvent {
-                maker: slab_order_node.owner,
-                taker:best_opposite_owner,
-                maker_order_id: order.order_id,
+            
+            emit_order_fill(
+                slab_order_node.owner,
+                order.client_order_id,
+                best_opposite_owner,
+                best_opposite_id,
                 side,
-                price: order.price,
-                base_lots_filled: fill_qty,
-                base_lots_remaining: 0,
-                timestamp: Clock::get()?.unix_timestamp,
+                order.price,
+                fill_qty,
+                order.quantity,
+            );
+            let event = QueueEvent {
+                event_type:EventType::Fill,
+                order_id:order.order_id,
+                owner:slab_order_node.owner,
+                counterparty:best_opposite_owner,
+                side:side,
+                price:order.price,
+                base_quantity:fill_qty,
+                client_order_id:order.client_order_id,
+                timestamp:Clock::get()?.unix_timestamp
             };
-            emit!(event);
+            event_queue.insert_event(event);
         } else {
-            // updating the slab order status
             best_opposite.order_status = OrderStatus::PartialFill;
-
-            let event = OrderFillEvent {
-                maker: slab_order_node.owner,
-                taker: best_opposite_owner,
-                maker_order_id: order.order_id,
+            
+            emit_partial_fill_order(
+                slab_order_node.owner,
+                order.client_order_id,
+                best_opposite_owner,
+                best_opposite_id,
                 side,
-                price: order.price,
-                base_lots_filled: fill_qty,
-                base_lots_remaining: order.quantity,
-                timestamp: Clock::get()?.unix_timestamp,
+                order.price,
+                fill_qty,
+                order.quantity,
+            );
+            let event = QueueEvent {
+                event_type:EventType::PartialFill,
+                order_id:order.order_id,
+                owner:slab_order_node.owner,
+                counterparty:best_opposite_owner,
+                side:side,
+                price:order.price,
+                base_quantity:fill_qty,
+                client_order_id:order.client_order_id,
+                timestamp:Clock::get()?.unix_timestamp
             };
-            emit!(event);
+            event_queue.insert_event(event);
         }
-        // If inflight order is fully filled, break
+
         if order.quantity == 0 {
             order.order_status = OrderStatus::Fill;
             break;
         }
     }
 
-    Ok(())
+    let filled_quantity = initial_quantity - order.quantity;
+    
+    Ok(MatchResult {
+        filled_quantity,
+        remaining_quantity: order.quantity,
+        order_status: order.order_status,
+        total_quote_qty,
+    })
 }
+
 impl EventQueue {
-    pub fn get_event_by_order_id(&mut self, order_id: &u64) -> Result<Option<&Event>> {
+    pub const CAPACITY: usize = 32;
+    pub fn get_event_by_order_id(&mut self, order_id: &u64) -> Result<Option<&QueueEvent>> {
         let event_position = self
             .events
             .iter()
@@ -265,29 +315,37 @@ impl EventQueue {
         let event = self.events.get(event_position);
         Ok(event)
     }
-    pub fn insert_event(&mut self, event: &Event) -> Result<()> {
-        const CAPACITY: usize = 32;
-
-        // If queue full → overwrite oldest
-        if self.count == CAPACITY as u32 {
-            // Move tail forward (drop the oldest event)
-            self.tail = (self.tail + 1) % CAPACITY as u32;
+    pub fn insert_event(&mut self, event: QueueEvent) -> Result<()> {
+        if self.count == Self::CAPACITY as u32 {
+            self.tail = (self.tail + 1) % Self::CAPACITY as u32;
         } else {
             self.count += 1;
         }
 
-        // Write event at header index
-        if self.events.len() < CAPACITY {
-            // Growing phase (first 32 inserts)
-            self.events.push(event.clone());
+        if self.events.len() < Self::CAPACITY {
+            self.events.push(event);
         } else {
-            // Fully allocated → overwrite
-            self.events[self.header as usize] = event.clone();
+            self.events[self.head as usize] = event;
         }
 
-        // Move header forward
-        self.header = (self.header + 1) % CAPACITY as u32;
-
+        self.head = (self.head + 1) % Self::CAPACITY as u32;
         Ok(())
+    }
+    pub fn pop_front(&mut self) -> Option<QueueEvent> {
+        if self.count == 0 {
+            return None;
+        }
+
+        let event = self.events[self.tail as usize].clone();
+        self.tail = (self.tail + 1) % Self::CAPACITY as u32;
+        self.count -= 1;
+        Some(event)
+    }
+
+    pub fn peek(&self) -> Option<&QueueEvent> {
+        if self.count == 0 {
+            return None;
+        }
+        Some(&self.events[self.tail as usize])
     }
 }
