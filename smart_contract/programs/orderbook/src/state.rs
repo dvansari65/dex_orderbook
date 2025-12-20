@@ -85,6 +85,7 @@ pub struct Order {
     pub order_id: u64,
     pub side: Side,
     pub price: u64,
+    pub owner: Pubkey, 
     pub quantity: u64,
     pub client_order_id: u64,
     pub order_status:OrderStatus
@@ -127,7 +128,7 @@ pub struct QueueEvent {
 }
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace,Debug)]
 pub struct EventQueue {
     pub head: u32,
     pub tail: u32,
