@@ -1,0 +1,1 @@
+export const MARKET_PUBKEY = process.env.NEXT_PUBLIC_MARKET_PUBKEY || "";
