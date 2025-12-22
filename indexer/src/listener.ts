@@ -2,12 +2,12 @@ import { AnchorProvider, Program, EventParser, Idl } from "@coral-xyz/anchor";
 import { AccountInfo, Connection, PublicKey } from "@solana/web3.js";
 import idl from "./idl/orderbook.json";
 import { Event, EventQueue, Market, Slab } from "../types/market";
-
 export class EventListener {
     private connection: Connection;
     private program: Program;
     private eventParser: EventParser;
-
+    private subscriptionId: number | null = null;
+    
     constructor(rpcURL: string, programId: string) {
         this.connection = new Connection(rpcURL, {
             commitment: "confirmed",
@@ -26,10 +26,10 @@ export class EventListener {
     }
 
     async start(callback: (event: any) => void) {
-        console.log("🎧Listening...");
+        console.log("Listening...");
         console.log("this.program.programId:",this.program.programId);
         
-        this.connection.onLogs(
+      this.subscriptionId =  this.connection.onLogs(
             this.program.programId,
             (logs) => {
                 console.log("=== RAW LOGS START ===");
@@ -67,6 +67,14 @@ export class EventListener {
         console.log("✅ Subscribed to:", this.program.programId.toString());
     }
 
+    async stop (){
+        if (this.subscriptionId !== null){
+            await this.connection.removeOnLogsListener(this.subscriptionId);
+            console.log("Unsubscribed from event logs");
+            this.subscriptionId = null;
+        }
+    }
+
     // async getMarketPda (baseMint:string,quoteMint:string){
     //     const [marketPda] = await 
     // }
@@ -75,7 +83,7 @@ export class EventListener {
             const accountInfo = await this.connection.getAccountInfo(
                 new PublicKey(marketPubKey)
             );
-
+            
             if (!accountInfo) {
                 throw new Error("Market not found!");
             }
@@ -92,9 +100,9 @@ export class EventListener {
             return null;
         }
     }
-    async fetchAskSlabState (slabPubKey:string):Promise<Slab | null> {
+    async fetchAskSlabState (askSlabKey: string):Promise<Slab | null> {
         try {
-            const accountInfo = await this.connection.getAccountInfo(new PublicKey(slabPubKey))
+            const accountInfo = await this.connection.getAccountInfo(new PublicKey(askSlabKey))
             if(!accountInfo){
                 throw new Error("Slab account not found!")
             }
@@ -108,8 +116,9 @@ export class EventListener {
             return null;
         }
     }
-    async fetchBidSlabState (bidSlabKey:string):Promise<Slab | null>{
+    async fetchBidSlabState (bidSlabKey: string):Promise<Slab | null>{
         try {
+            
             const accountInfo = await this.connection.getAccountInfo(new PublicKey(bidSlabKey))
             if(!accountInfo){
                 throw new Error("Bid Slab account not found!")

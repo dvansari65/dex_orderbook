@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node src/index.ts",
+    "api": "ts-node src/api.ts",
     "dev": "ts-node src/index.ts",
     "build": "tsc"
   },

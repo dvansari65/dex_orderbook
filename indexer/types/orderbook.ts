@@ -1,4 +1,10 @@
-{
+/**
+ * Program IDL in camelCase format in order to be used in JS/TS.
+ *
+ * Note that this is only a type helper and is not the actual IDL. The original
+ * IDL can be found at `target/idl/orderbook.json`.
+ */
+export type Orderbook = {
   "address": "2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku",
   "metadata": {
     "name": "orderbook",
@@ -8,7 +14,7 @@
   },
   "instructions": [
     {
-      "name": "cancel_order",
+      "name": "cancelOrder",
       "discriminator": [
         95,
         129,
@@ -24,11 +30,11 @@
           "name": "market",
           "writable": true,
           "relations": [
-            "open_order"
+            "openOrder"
           ]
         },
         {
-          "name": "open_order",
+          "name": "openOrder",
           "writable": true,
           "pda": {
             "seeds": [
@@ -59,7 +65,7 @@
           }
         },
         {
-          "name": "vault_signer",
+          "name": "vaultSigner",
           "docs": [
             "This is a PDA used only as the authority for the token vaults.",
             "It holds no data, is never read or written, and is only used for signing.",
@@ -96,7 +102,7 @@
           "writable": true
         },
         {
-          "name": "event_queue",
+          "name": "eventQueue",
           "writable": true
         },
         {
@@ -142,42 +148,42 @@
           }
         },
         {
-          "name": "quote_vault",
+          "name": "quoteVault",
           "writable": true
         },
         {
-          "name": "base_vault",
+          "name": "baseVault",
           "writable": true
         },
         {
-          "name": "user_base_vault",
+          "name": "userBaseVault",
           "writable": true
         },
         {
-          "name": "user_quote_vault",
+          "name": "userQuoteVault",
           "writable": true
         },
         {
           "name": "owner",
           "signer": true,
           "relations": [
-            "open_order"
+            "openOrder"
           ]
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "order_id",
+          "name": "orderId",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "initialise_market",
+      "name": "initialiseMarket",
       "discriminator": [
         164,
         190,
@@ -237,22 +243,22 @@
           }
         },
         {
-          "name": "event_queue",
+          "name": "eventQueue",
           "writable": true,
           "signer": true
         },
         {
-          "name": "base_vault",
+          "name": "baseVault",
           "writable": true,
           "signer": true
         },
         {
-          "name": "quote_vault",
+          "name": "quoteVault",
           "writable": true,
           "signer": true
         },
         {
-          "name": "vault_signer",
+          "name": "vaultSigner",
           "docs": [
             "This is a PDA used only as the authority for the token vaults.",
             "It holds no data, is never read or written, and is only used for signing.",
@@ -290,41 +296,41 @@
           "signer": true
         },
         {
-          "name": "base_mint"
+          "name": "baseMint"
         },
         {
-          "name": "quote_mint"
+          "name": "quoteMint"
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "base_lot_size",
+          "name": "baseLotSize",
           "type": "u64"
         },
         {
-          "name": "quote_lot_size",
+          "name": "quoteLotSize",
           "type": "u64"
         },
         {
-          "name": "maker_fees_bps",
+          "name": "makerFeesBps",
           "type": "u64"
         },
         {
-          "name": "taker_fees_bps",
+          "name": "takerFeesBps",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "initialize_open_order",
+      "name": "initializeOpenOrder",
       "discriminator": [
         138,
         205,
@@ -337,7 +343,7 @@
       ],
       "accounts": [
         {
-          "name": "open_order",
+          "name": "openOrder",
           "writable": true,
           "pda": {
             "seeds": [
@@ -377,14 +383,14 @@
           "signer": true
         },
         {
-          "name": "system_program",
+          "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
     },
     {
-      "name": "place_order",
+      "name": "placeOrder",
       "discriminator": [
         51,
         194,
@@ -400,7 +406,7 @@
           "name": "market",
           "writable": true,
           "relations": [
-            "open_order"
+            "openOrder"
           ]
         },
         {
@@ -446,7 +452,7 @@
           }
         },
         {
-          "name": "open_order",
+          "name": "openOrder",
           "writable": true,
           "pda": {
             "seeds": [
@@ -477,44 +483,44 @@
           }
         },
         {
-          "name": "event_queue",
+          "name": "eventQueue",
           "writable": true
         },
         {
-          "name": "quote_vault",
+          "name": "quoteVault",
           "writable": true
         },
         {
-          "name": "base_vault",
+          "name": "baseVault",
           "writable": true
         },
         {
-          "name": "user_base_vault",
+          "name": "userBaseVault",
           "writable": true
         },
         {
-          "name": "user_quote_vault",
+          "name": "userQuoteVault",
           "writable": true
         },
         {
           "name": "owner",
           "signer": true,
           "relations": [
-            "open_order"
+            "openOrder"
           ]
         },
         {
-          "name": "token_program",
+          "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "max_base_size",
+          "name": "maxBaseSize",
           "type": "u64"
         },
         {
-          "name": "client_order_id",
+          "name": "clientOrderId",
           "type": "u64"
         },
         {
@@ -522,10 +528,10 @@
           "type": "u64"
         },
         {
-          "name": "order_type",
+          "name": "orderType",
           "type": {
             "defined": {
-              "name": "OrderType"
+              "name": "orderType"
             }
           }
         },
@@ -533,7 +539,7 @@
           "name": "side",
           "type": {
             "defined": {
-              "name": "Side"
+              "name": "side"
             }
           }
         }
@@ -542,7 +548,7 @@
   ],
   "accounts": [
     {
-      "name": "EventQueue",
+      "name": "eventQueue",
       "discriminator": [
         41,
         208,
@@ -555,7 +561,7 @@
       ]
     },
     {
-      "name": "Market",
+      "name": "market",
       "discriminator": [
         219,
         190,
@@ -568,7 +574,7 @@
       ]
     },
     {
-      "name": "OpenOrders",
+      "name": "openOrders",
       "discriminator": [
         139,
         166,
@@ -581,7 +587,7 @@
       ]
     },
     {
-      "name": "Slab",
+      "name": "slab",
       "discriminator": [
         94,
         207,
@@ -596,7 +602,7 @@
   ],
   "events": [
     {
-      "name": "FeeCollectedEvent",
+      "name": "feeCollectedEvent",
       "discriminator": [
         142,
         253,
@@ -609,7 +615,7 @@
       ]
     },
     {
-      "name": "OrderCancelledEvent",
+      "name": "orderCancelledEvent",
       "discriminator": [
         200,
         73,
@@ -622,7 +628,7 @@
       ]
     },
     {
-      "name": "OrderEvictedEvent",
+      "name": "orderEvictedEvent",
       "discriminator": [
         241,
         47,
@@ -635,7 +641,7 @@
       ]
     },
     {
-      "name": "OrderExpiredEvent",
+      "name": "orderExpiredEvent",
       "discriminator": [
         150,
         3,
@@ -648,7 +654,7 @@
       ]
     },
     {
-      "name": "OrderFillEvent",
+      "name": "orderFillEvent",
       "discriminator": [
         192,
         9,
@@ -661,7 +667,7 @@
       ]
     },
     {
-      "name": "OrderPartialFillEvent",
+      "name": "orderPartialFillEvent",
       "discriminator": [
         233,
         153,
@@ -674,7 +680,7 @@
       ]
     },
     {
-      "name": "OrderPlacedEvent",
+      "name": "orderPlacedEvent",
       "discriminator": [
         245,
         198,
@@ -687,7 +693,7 @@
       ]
     },
     {
-      "name": "OrderReducedEvent",
+      "name": "orderReducedEvent",
       "discriminator": [
         61,
         186,
@@ -700,7 +706,7 @@
       ]
     },
     {
-      "name": "TimeInForceEvent",
+      "name": "timeInForceEvent",
       "discriminator": [
         148,
         0,
@@ -716,43 +722,13 @@
   "errors": [
     {
       "code": 6000,
-      "name": "BalanceError",
-      "msg": "Insufficient balance"
-    },
-    {
-      "code": 6001,
-      "name": "OrderbookFull",
-      "msg": "Order book full!"
-    },
-    {
-      "code": 6002,
-      "name": "OrderNotFound",
-      "msg": "order not found!"
-    },
-    {
-      "code": 6003,
-      "name": "OrderFull",
-      "msg": "Orders exceeded!"
-    },
-    {
-      "code": 6004,
-      "name": "NoSpace",
-      "msg": "No free space for the order!"
-    },
-    {
-      "code": 6005,
-      "name": "UnderFlow",
-      "msg": "Quantity underflow!"
-    },
-    {
-      "code": 6006,
-      "name": "OverFlow",
-      "msg": "Quantity Overflow!"
+      "name": "orderNotFound",
+      "msg": "Order not found in the Slab!"
     }
   ],
   "types": [
     {
-      "name": "EventQueue",
+      "name": "eventQueue",
       "type": {
         "kind": "struct",
         "fields": [
@@ -773,7 +749,7 @@
             "type": {
               "vec": {
                 "defined": {
-                  "name": "QueueEvent"
+                  "name": "queueEvent"
                 }
               }
             }
@@ -782,7 +758,7 @@
       }
     },
     {
-      "name": "EventType",
+      "name": "eventType",
       "repr": {
         "kind": "rust"
       },
@@ -790,37 +766,37 @@
         "kind": "enum",
         "variants": [
           {
-            "name": "Place"
+            "name": "place"
           },
           {
-            "name": "Fill"
+            "name": "fill"
           },
           {
-            "name": "PartialFill"
+            "name": "partialFill"
           },
           {
-            "name": "Cancel"
+            "name": "cancel"
           },
           {
-            "name": "Reduce"
+            "name": "reduce"
           },
           {
-            "name": "Evict"
+            "name": "evict"
           },
           {
-            "name": "Expire"
+            "name": "expire"
           },
           {
-            "name": "FeeCollected"
+            "name": "feeCollected"
           },
           {
-            "name": "TimeInForce"
+            "name": "timeInForce"
           }
         ]
       }
     },
     {
-      "name": "FeeCollectedEvent",
+      "name": "feeCollectedEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -833,11 +809,11 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
-            "name": "fees_collected_in_quote_lots",
+            "name": "feesCollectedInQuoteLots",
             "type": "u64"
           },
           {
@@ -848,28 +824,28 @@
       }
     },
     {
-      "name": "Market",
+      "name": "market",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "next_order_id",
+            "name": "nextOrderId",
             "type": "u64"
           },
           {
-            "name": "base_mint",
+            "name": "baseMint",
             "type": "pubkey"
           },
           {
-            "name": "quote_mint",
+            "name": "quoteMint",
             "type": "pubkey"
           },
           {
-            "name": "base_vault",
+            "name": "baseVault",
             "type": "pubkey"
           },
           {
-            "name": "quote_vault",
+            "name": "quoteVault",
             "type": "pubkey"
           },
           {
@@ -881,23 +857,23 @@
             "type": "pubkey"
           },
           {
-            "name": "event_queue",
+            "name": "eventQueue",
             "type": "pubkey"
           },
           {
-            "name": "base_lot_size",
+            "name": "baseLotSize",
             "type": "u64"
           },
           {
-            "name": "quote_lot_size",
+            "name": "quoteLotSize",
             "type": "u64"
           },
           {
-            "name": "maker_fees_bps",
+            "name": "makerFeesBps",
             "type": "u64"
           },
           {
-            "name": "taker_fees_bps",
+            "name": "takerFeesBps",
             "type": "u64"
           },
           {
@@ -905,19 +881,19 @@
             "type": "pubkey"
           },
           {
-            "name": "vault_signer_nonce",
+            "name": "vaultSignerNonce",
             "type": "u8"
           },
           {
-            "name": "market_status",
+            "name": "marketStatus",
             "type": "u8"
           },
           {
-            "name": "min_order_size",
+            "name": "minOrderSize",
             "type": "u64"
           },
           {
-            "name": "max_orders_per_user",
+            "name": "maxOrdersPerUser",
             "type": "u16"
           },
           {
@@ -933,7 +909,7 @@
       }
     },
     {
-      "name": "Node",
+      "name": "node",
       "repr": {
         "kind": "c"
       },
@@ -953,7 +929,7 @@
             "type": "pubkey"
           },
           {
-            "name": "client_order_id",
+            "name": "clientOrderId",
             "type": "u64"
           },
           {
@@ -961,14 +937,14 @@
             "type": "i64"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
-            "name": "order_status",
+            "name": "orderStatus",
             "type": {
               "defined": {
-                "name": "OrderStatus"
+                "name": "orderStatus"
               }
             }
           },
@@ -984,7 +960,7 @@
       }
     },
     {
-      "name": "OpenOrders",
+      "name": "openOrders",
       "type": {
         "kind": "struct",
         "fields": [
@@ -997,19 +973,19 @@
             "type": "pubkey"
           },
           {
-            "name": "base_free",
+            "name": "baseFree",
             "type": "u64"
           },
           {
-            "name": "base_locked",
+            "name": "baseLocked",
             "type": "u64"
           },
           {
-            "name": "quote_free",
+            "name": "quoteFree",
             "type": "u64"
           },
           {
-            "name": "quote_locked",
+            "name": "quoteLocked",
             "type": "u64"
           },
           {
@@ -1017,40 +993,40 @@
             "type": {
               "vec": {
                 "defined": {
-                  "name": "Order"
+                  "name": "order"
                 }
               }
             }
           },
           {
-            "name": "orders_count",
+            "name": "ordersCount",
             "type": "u8"
           }
         ]
       }
     },
     {
-      "name": "Order",
+      "name": "order",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "order_type",
+            "name": "orderType",
             "type": {
               "defined": {
-                "name": "OrderType"
+                "name": "orderType"
               }
             }
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1067,14 +1043,14 @@
             "type": "u64"
           },
           {
-            "name": "client_order_id",
+            "name": "clientOrderId",
             "type": "u64"
           },
           {
-            "name": "order_status",
+            "name": "orderStatus",
             "type": {
               "defined": {
-                "name": "OrderStatus"
+                "name": "orderStatus"
               }
             }
           }
@@ -1082,7 +1058,7 @@
       }
     },
     {
-      "name": "OrderCancelledEvent",
+      "name": "orderCancelledEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1095,14 +1071,14 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1118,7 +1094,7 @@
       }
     },
     {
-      "name": "OrderEvictedEvent",
+      "name": "orderEvictedEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1131,14 +1107,14 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1147,7 +1123,7 @@
             "type": "u64"
           },
           {
-            "name": "base_lots_evicted",
+            "name": "baseLotsEvicted",
             "type": "u64"
           },
           {
@@ -1158,7 +1134,7 @@
       }
     },
     {
-      "name": "OrderExpiredEvent",
+      "name": "orderExpiredEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1171,14 +1147,14 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1187,7 +1163,7 @@
             "type": "u64"
           },
           {
-            "name": "base_lots_removed",
+            "name": "baseLotsRemoved",
             "type": "u64"
           },
           {
@@ -1198,7 +1174,7 @@
       }
     },
     {
-      "name": "OrderFillEvent",
+      "name": "orderFillEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1207,7 +1183,7 @@
             "type": "pubkey"
           },
           {
-            "name": "maker_order_id",
+            "name": "makerOrderId",
             "type": "u64"
           },
           {
@@ -1215,14 +1191,14 @@
             "type": "pubkey"
           },
           {
-            "name": "taker_order_id",
+            "name": "takerOrderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1231,11 +1207,11 @@
             "type": "u64"
           },
           {
-            "name": "base_lots_filled",
+            "name": "baseLotsFilled",
             "type": "u64"
           },
           {
-            "name": "base_lots_remaining",
+            "name": "baseLotsRemaining",
             "type": "u64"
           },
           {
@@ -1246,7 +1222,7 @@
       }
     },
     {
-      "name": "OrderPartialFillEvent",
+      "name": "orderPartialFillEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1255,7 +1231,7 @@
             "type": "pubkey"
           },
           {
-            "name": "maker_order_id",
+            "name": "makerOrderId",
             "type": "u64"
           },
           {
@@ -1263,14 +1239,14 @@
             "type": "pubkey"
           },
           {
-            "name": "taker_order_id",
+            "name": "takerOrderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1279,11 +1255,11 @@
             "type": "u64"
           },
           {
-            "name": "base_lots_filled",
+            "name": "baseLotsFilled",
             "type": "u64"
           },
           {
-            "name": "base_lots_remaining",
+            "name": "baseLotsRemaining",
             "type": "u64"
           },
           {
@@ -1294,7 +1270,7 @@
       }
     },
     {
-      "name": "OrderPlacedEvent",
+      "name": "orderPlacedEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1307,18 +1283,18 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
-            "name": "client_order_id",
+            "name": "clientOrderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1327,7 +1303,7 @@
             "type": "u64"
           },
           {
-            "name": "base_lots",
+            "name": "baseLots",
             "type": "u64"
           },
           {
@@ -1338,7 +1314,7 @@
       }
     },
     {
-      "name": "OrderReducedEvent",
+      "name": "orderReducedEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1351,14 +1327,14 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1367,11 +1343,11 @@
             "type": "u64"
           },
           {
-            "name": "base_lots_removed",
+            "name": "baseLotsRemoved",
             "type": "u64"
           },
           {
-            "name": "base_lots_remaining",
+            "name": "baseLotsRemaining",
             "type": "u64"
           },
           {
@@ -1382,7 +1358,7 @@
       }
     },
     {
-      "name": "OrderStatus",
+      "name": "orderStatus",
       "repr": {
         "kind": "rust"
       },
@@ -1390,46 +1366,46 @@
         "kind": "enum",
         "variants": [
           {
-            "name": "Fill"
+            "name": "fill"
           },
           {
-            "name": "PartialFill"
+            "name": "partialFill"
           }
         ]
       }
     },
     {
-      "name": "OrderType",
+      "name": "orderType",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Limit"
+            "name": "limit"
           },
           {
-            "name": "ImmediateOrCancel"
+            "name": "immediateOrCancel"
           },
           {
-            "name": "PostOnly"
+            "name": "postOnly"
           }
         ]
       }
     },
     {
-      "name": "QueueEvent",
+      "name": "queueEvent",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "event_type",
+            "name": "eventType",
             "type": {
               "defined": {
-                "name": "EventType"
+                "name": "eventType"
               }
             }
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
@@ -1444,7 +1420,7 @@
             "name": "side",
             "type": {
               "defined": {
-                "name": "Side"
+                "name": "side"
               }
             }
           },
@@ -1453,11 +1429,11 @@
             "type": "u64"
           },
           {
-            "name": "base_quantity",
+            "name": "baseQuantity",
             "type": "u64"
           },
           {
-            "name": "client_order_id",
+            "name": "clientOrderId",
             "type": "u64"
           },
           {
@@ -1468,34 +1444,34 @@
       }
     },
     {
-      "name": "Side",
+      "name": "side",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "Bid"
+            "name": "bid"
           },
           {
-            "name": "Ask"
+            "name": "ask"
           }
         ]
       }
     },
     {
-      "name": "Slab",
+      "name": "slab",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "head_index",
+            "name": "headIndex",
             "type": "u32"
           },
           {
-            "name": "free_list_len",
+            "name": "freeListLen",
             "type": "u32"
           },
           {
-            "name": "leaf_count",
+            "name": "leafCount",
             "type": "u32"
           },
           {
@@ -1503,7 +1479,7 @@
             "type": {
               "vec": {
                 "defined": {
-                  "name": "Node"
+                  "name": "node"
                 }
               }
             }
@@ -1512,7 +1488,7 @@
       }
     },
     {
-      "name": "TimeInForceEvent",
+      "name": "timeInForceEvent",
       "type": {
         "kind": "struct",
         "fields": [
@@ -1521,19 +1497,19 @@
             "type": "pubkey"
           },
           {
-            "name": "order_id",
+            "name": "orderId",
             "type": "u64"
           },
           {
-            "name": "last_valid_slot",
+            "name": "lastValidSlot",
             "type": "u64"
           },
           {
-            "name": "last_valid_unix_timestamp_in_seconds",
+            "name": "lastValidUnixTimestampInSeconds",
             "type": "u64"
           }
         ]
       }
     }
   ]
-}
+};

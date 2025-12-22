@@ -1,12 +1,12 @@
-import { Market, MarketState, OrderbookEvent } from "./types";
+import { Market,Event } from "../types/market";
 
 
 export class InMemoryStorage {
     
-    private events: OrderbookEvent[] = [];
+    private events: Event[] = [];
     private marketState: Map<string, Market> = new Map()
 
-    storeEvent(event: OrderbookEvent) {
+    storeEvent(event: Event) {
         this.events.push(event)
         console.log(`stored event : ${event.eventType}`);
     }
@@ -14,7 +14,7 @@ export class InMemoryStorage {
         this.marketState.set(market, marketState);
         console.log(`update market state:${market}`);
     }
-    getRecentEvents(limit: number = 100): OrderbookEvent[] {
+    getRecentEvents(limit: number = 100): Event[] {
         return this.events.slice(-limit);
     }
     getMarketState(market: string): Market | undefined {
