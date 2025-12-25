@@ -33,7 +33,7 @@ export const useInitializeOpenOrder = () => {
                         systemProgram: SystemProgram.programId,
                     })
                     .rpc();
-    
+                console.log("open order tx:",tx)
                 return tx;
             } catch (error) {
                 throw error;
