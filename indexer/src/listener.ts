@@ -1,6 +1,6 @@
 import { AnchorProvider, Program, EventParser, Idl } from "@coral-xyz/anchor";
 import { AccountInfo, Connection, PublicKey } from "@solana/web3.js";
-import idl from "./idl/orderbook.json";
+import idl from "./idl/orderbook.json"
 import { Event, EventQueue, Market, Slab } from "../types/market";
 export class EventListener {
     private connection: Connection;
@@ -11,7 +11,7 @@ export class EventListener {
     constructor(rpcURL: string, programId: string) {
         this.connection = new Connection(rpcURL, {
             commitment: "confirmed",
-            wsEndpoint: "ws://127.0.0.1:8900",
+            wsEndpoint: "ws://127.0.0.1:8900"
         });
 
         const provider = new AnchorProvider(this.connection, {} as any, {
@@ -23,6 +23,7 @@ export class EventListener {
             this.program.coder
         );
         console.log("this.eventParser:",this.eventParser)
+        
     }
 
     async start(callback: (event: any) => void) {
