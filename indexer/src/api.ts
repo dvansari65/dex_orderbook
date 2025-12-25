@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import dotenv from "dotenv";
 import { EventListener } from "./listener";
 import { Conversion } from "./utils/conversion";
+import  { Slab } from "../types/market";
 dotenv.config();
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8899";
 const PROGRAM_ID = process.env.PROGRAM_ID || "";
@@ -30,49 +31,99 @@ io.on("connect", async (socket) => {
     console.log("frontend connected:", socket.id);
 
     try {
-        console.log("market key:",MARKET_PUBKEY)
+        console.log("market key:", MARKET_PUBKEY);
+      
         const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
-
         if (!marketState) {
-            socket.emit("error", { message: "Market not found!" });
-            return;
+          socket.emit("error", { message: "Market not found!" });
+          return;
         }
-        const conversion = new Conversion(marketState)
-        // Ask aur Bid slab data parallel fetch karo
-        const [askSlabData, bidSlabData] = await Promise.all([
+      
+        const conversion = new Conversion(marketState);
+      
+        let askSlabData: Slab | null = null;
+        let bidSlabData: Slab | null = null;
+      
+        // Fetch slabs once before first snapshot
+        const fetchSlabs = async () => {
+          const [asks, bids] = await Promise.all([
             listener.fetchAskSlabState(marketState.asks as string),
             listener.fetchBidSlabState(marketState.bids as string)
-        ]);
-       
-        const convertedAskSlab = {
-            headIndex: askSlabData?.headIndex,
-            freeListLen: askSlabData?.freeListLen,
-            leafCount: askSlabData?.leafCount,
-            nodes: askSlabData?.nodes.map((node: any) => conversion.convertNode(node)),
-        }
-        const convertedBidSlab = {
-            headIndex: bidSlabData?.headIndex,
-            freeListLen: bidSlabData?.freeListLen,
-            leafCount: bidSlabData?.leafCount,
-            nodes: bidSlabData?.nodes.map((node: any) =>conversion.convertNode(node)),
-        }
-        console.log("conervted bid:",bidSlabData)
-        // Initial snapshot bhejo
+          ]);
+          askSlabData = asks;
+          bidSlabData = bids;
+        };
+      
+        await fetchSlabs(); // 🔥 ensure slabs exist before initial emit
+      
+        const buildConverted = () => {
+          const convertedAsk = askSlabData
+            ? {
+                headIndex: askSlabData.headIndex,
+                freeListLen: askSlabData.freeListLen,
+                leafCount: askSlabData.leafCount,
+                nodes: askSlabData.nodes.map(n => conversion.convertNode(n))
+              }
+            : {
+                headIndex: null,
+                freeListLen: null,
+                leafCount: null,
+                nodes: []
+              };
+      
+          const convertedBid = bidSlabData
+            ? {
+                headIndex: bidSlabData.headIndex,
+                freeListLen: bidSlabData.freeListLen,
+                leafCount: bidSlabData.leafCount,
+                nodes: bidSlabData.nodes.map(n => conversion.convertNode(n))
+              }
+            : {
+                headIndex: null,
+                freeListLen: null,
+                leafCount: null,
+                nodes: []
+              };
+      
+          return { convertedAsk, convertedBid };
+        };
+      
+        // Emit initial snapshot
+        const { convertedAsk, convertedBid } = buildConverted();
         socket.emit("initial-snapshot", {
-            market: marketState,
-            asks: convertedAskSlab,
-            bids: convertedBidSlab,
-            success: true,
-            timestamp: Date.now()
+          market: marketState,
+          asks: convertedAsk,
+          bids: convertedBid,
+          success: true,
+          timestamp: Date.now()
         });
-        await listener.start((event)=>{
-            console.log("events:",event)
-        })
-
-    } catch (error: any) {
-        socket.emit("error", { message: error.message || "Something went wrong!" })
-        return;
-    }
+      
+        // Start periodic slab refresh
+        const intervalId = setInterval(async () => {
+          await fetchSlabs();
+          const { convertedAsk, convertedBid } = buildConverted();
+          socket.emit("update-snapshot", {
+            asks: convertedAsk,
+            bids: convertedBid,
+            timestamp: Date.now()
+          });
+        }, 2000);
+      
+        // cancel on disconnect
+        socket.on("disconnect", () => {
+          console.log("Frontend disconnected:", socket.id);
+          clearInterval(intervalId);
+        });
+      
+        // Stream program events live
+        await listener.start((event) => {
+          socket.emit("market-event", event);
+        });
+      
+      } catch (error: any) {
+        socket.emit("error", { message: error.message || "Something went wrong!" });
+      }
+      
 
     socket.on("disconnect", () => {
         console.log("Frontend disconnected:", socket.id);
