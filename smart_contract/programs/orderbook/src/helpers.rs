@@ -1,13 +1,13 @@
-use std::ptr::null;
-use std::{clone, u32};
 
-use anchor_lang::{Event, prelude::*};
+use std::{ u32};
+
+use anchor_lang::{ prelude::*};
 
 use crate::error::{
-    EventError, EventQueueError, MarketError, OpenOrderError, OrderError, SlabError,
+    EventError, OpenOrderError, OrderError, SlabError,
 };
 use crate::events::*;
-use crate::state::{ EventQueue, EventType, Market, OrderStatus, OrderType, QueueEvent};
+use crate::state::{ EventQueue, EventType, OrderStatus, QueueEvent};
 
 use crate::state::{ Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
@@ -19,6 +19,9 @@ impl Slab {
         owner: Pubkey,
         price: u64,
         order_status: OrderStatus,
+        client_order_id:u64,
+        market:&Pubkey,
+        side:Side,
     ) -> Result<()> {
         require!(self.nodes.len() < 32, OrderError::OrderbookFull);
         require!(self.free_list_len > 0, OrderError::NoSpace);
@@ -28,7 +31,7 @@ impl Slab {
             quantity,
             owner,
             order_id,
-            client_order_id: order_id as u64,
+            client_order_id,
             timestamp: Clock::get()?.unix_timestamp,
             next: u32::MAX,
             prev: u32::MAX,
@@ -54,6 +57,8 @@ impl Slab {
             price,
             self.leaf_count
         );
+        emit_order_placed(*market, owner, order_id, client_order_id, side, price, quantity)?;
+        msg!("Event emission completed");
         Ok(())
     }
 
@@ -105,7 +110,7 @@ impl Slab {
         let position = self
             .nodes
             .iter()
-            .position(|n| n.client_order_id == *order_id as u64)
+            .position(|n| n.order_id == *order_id as u64)
             .ok_or(OrderError::OrderNotFound)?;
 
         let removed_node = self.nodes.remove(position);
@@ -140,7 +145,7 @@ impl Slab {
 }
 
 impl OpenOrders {
-    pub fn push_order(&mut self, order: Order) -> Result<(Order)> {
+    pub fn push_order(&mut self, order: Order) -> Result<Order> {
         const MAX_ORDERS: usize = 16;
         if self.orders.len() >= MAX_ORDERS {
             msg!("Orders full!");
@@ -189,7 +194,8 @@ pub fn match_orders(
     bids: &mut Slab,
     event_queue  :&mut EventQueue
 ) -> Result<MatchResult> {
-    let (opposite_slab, same_side_slab) = match side {
+
+    let (opposite_slab, _same_side_slab) = match side {
         Side::Ask => (bids, asks),
         Side::Bid => (asks, bids),
     };
@@ -203,6 +209,7 @@ pub fn match_orders(
         if (side == Side::Ask && order.price > best_opposite.price)
             || (side == Side::Bid && order.price < best_opposite.price)
         {
+            msg!("PRICE MISMATCH - No match possible. Breaking.");
             break;
         }
 
@@ -223,23 +230,20 @@ pub fn match_orders(
             .checked_sub(fill_qty)
             .ok_or(OrderError::UnderFlow)?;
 
-        let slab_order_node = same_side_slab
-            .get_order_by_id(order.order_id)
-            .unwrap()
-            .ok_or(OrderError::OrderNotFound)?;
-
         let best_opposite_id = best_opposite.order_id;
         let best_opposite_owner = best_opposite.owner;
         let is_filled = best_opposite.quantity == 0;
 
+        msg!("Match found - fill_qty: {}, price: {}", fill_qty, order.price);
+
         if is_filled {
             best_opposite.order_status = OrderStatus::Fill;
-            drop(best_opposite);
-            
+            msg!("Order fully filled - removing from book");
+
             opposite_slab.remove_order(&best_opposite_id)?;
             
             emit_order_fill(
-                slab_order_node.owner,
+                order.owner,
                 order.client_order_id,
                 best_opposite_owner,
                 best_opposite_id,
@@ -251,7 +255,7 @@ pub fn match_orders(
             let event = QueueEvent {
                 event_type:EventType::Fill,
                 order_id:order.order_id,
-                owner:slab_order_node.owner,
+                owner:order.owner,
                 counterparty:best_opposite_owner,
                 side:side,
                 price:order.price,
@@ -259,12 +263,12 @@ pub fn match_orders(
                 client_order_id:order.client_order_id,
                 timestamp:Clock::get()?.unix_timestamp
             };
-            event_queue.insert_event(event);
+            event_queue.insert_event(event)?;
         } else {
             best_opposite.order_status = OrderStatus::PartialFill;
-            
-            emit_partial_fill_order(
-                slab_order_node.owner,
+            msg!("Order partially filled");
+            let emitted_event = emit_partial_fill_order(
+                order.owner,
                 order.client_order_id,
                 best_opposite_owner,
                 best_opposite_id,
@@ -273,10 +277,13 @@ pub fn match_orders(
                 fill_qty,
                 order.quantity,
             );
+            if emitted_event.is_ok(){
+                msg!("partially order filled event emitted");
+            }
             let event = QueueEvent {
                 event_type:EventType::PartialFill,
                 order_id:order.order_id,
-                owner:slab_order_node.owner,
+                owner:order.owner,
                 counterparty:best_opposite_owner,
                 side:side,
                 price:order.price,
@@ -284,7 +291,7 @@ pub fn match_orders(
                 client_order_id:order.client_order_id,
                 timestamp:Clock::get()?.unix_timestamp
             };
-            event_queue.insert_event(event);
+            event_queue.insert_event(event)?;
         }
 
         if order.quantity == 0 {
@@ -329,6 +336,7 @@ impl EventQueue {
         }
 
         self.head = (self.head + 1) % Self::CAPACITY as u32;
+        println!(">>>>event inserted!:{:?}  and order id : {:?}",self,self.events[0]);
         Ok(())
     }
     pub fn pop_front(&mut self) -> Option<QueueEvent> {
