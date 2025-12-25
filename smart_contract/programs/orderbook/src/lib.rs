@@ -1,9 +1,9 @@
+use crate::states::order_schema::enums::Side;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
-
 declare_id!("2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku");
 
 pub mod error;
@@ -11,6 +11,7 @@ pub mod events;
 pub mod helpers;
 pub mod state;
 pub mod states;
+
 use error::*;
 
 use state::*;
@@ -19,7 +20,7 @@ use state::*;
 pub mod orderbook {
     use std::u32;
 
-    use crate::{error::ErrorCode, states::order_schema::enums::Side};
+    use crate::{error::ErrorCode, helpers::match_orders, states::order_schema::enums::Side};
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -44,7 +45,7 @@ pub mod orderbook {
         bids.head_index = u32::MAX;
 
         market.next_order_id = 0;
-        
+
         // Admin and tokens
         market.admin = ctx.accounts.admin.key();
         market.base_mint = ctx.accounts.base_mint.key();
@@ -82,18 +83,26 @@ pub mod orderbook {
         ctx: Context<PlaceOrder>,
         max_base_size: u64,
         client_order_id: u64,
-        price: u64,
+        price_in_quote_lots: u64,
         order_type: OrderType,
         side: Side,
     ) -> Result<()> {
+        println!("place order triggered:");
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
         let owner = &mut ctx.accounts.owner;
         let event_queue = &mut ctx.accounts.event_queue;
-        let  order_id =  market.next_order_id;
-        market.next_order_id = market.next_order_id
-                                .checked_add(1)
-                                .ok_or(MarketError::OrderIdOverFlow)?;
+        let order_id = market.next_order_id;
+        let asks = &mut ctx.accounts.asks;
+        let bids = &mut ctx.accounts.bids;
+        msg!(
+            "order size which is obtain from user:{}",
+            market.min_order_size
+        );
+        market.next_order_id = market
+            .next_order_id
+            .checked_add(1)
+            .ok_or(MarketError::OrderIdOverFlow)?;
         require!(market.market_status == 1, MarketError::MarketActiveError);
 
         require!(
@@ -102,50 +111,60 @@ pub mod orderbook {
         );
 
         let base_lots = max_base_size / market.base_lot_size;
-        
-        
-        if matches!(order_type, OrderType::ImmediateOrCancel) {
-            // match_orders(
-            //     &mut ctx.accounts.asks,
-            //     &mut ctx.accounts.bids,
-            //     event_queue,
-            // )?;
-        }
-        let event = Event {
-            order_id: order_id,
-            event_type: EventType::NewOrder,
-            price,
-            quantity: max_base_size,
-            maker: owner.key(),       // Owner who placed the order
-            taker: Pubkey::default(), // No taker yet for new order
-            timestamp: Clock::get()?.unix_timestamp as u64,
+
+        let mut created_order = Order {
+            order_type,
+            side,
+            quantity: base_lots,
+            owner: owner.key(),
+            order_id,
+            client_order_id,
+            price: price_in_quote_lots,
+            order_status: OrderStatus::PartialFill,
         };
-        emit!(event);
-        EventQueue::insert_event(event_queue, &event)?;
+        match order_type {
+            OrderType::Limit => {
+                match_orders(side, &mut created_order, asks, bids, event_queue)?;
+            }
+            OrderType::PostOnly => {}
+            OrderType::ImmediateOrCancel => {}
+        }
         let slab = match side {
             Side::Ask => &mut ctx.accounts.asks,
             Side::Bid => &mut ctx.accounts.bids,
         };
 
-        Slab::insert_order(slab, order_id, base_lots, ctx.accounts.owner.key(), price)?;
-        let created_order = Order {
-            order_type,
-            side,
-            quantity: base_lots,
-            order_id,
-            client_order_id,
-            price,
-        };
-
-        let pushed_order = OpenOrders::push_order(open_order, created_order)?;
         match side {
             Side::Bid => {
-                let amount_to_lock = price
+                let amount_to_lock = price_in_quote_lots
                     .checked_mul(base_lots)
                     .ok_or(MarketError::MathOverflow)?
                     .checked_mul(market.quote_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
 
+                require!(
+                    ctx.accounts.user_quote_vault.owner == owner.key(),
+                    MarketError::InvalidTokenAccountOwner
+                );
+
+                require!(
+                    ctx.accounts.user_quote_vault.amount >= amount_to_lock,
+                    MarketError::InsufficientQuoteBalance
+                );
+
+                require!(
+                    ctx.accounts.user_quote_vault.mint == market.quote_mint,
+                    MarketError::InvalidTokenMint
+                );
+                require!(
+                    ctx.accounts.quote_vault.amount >= 0, // just to check existence
+                    MarketError::DestinationVaultUninitialized
+                );
+                require!(
+                    ctx.accounts.quote_vault.mint == market.quote_mint,
+                    MarketError::InvalidTokenMint
+                );
+                msg!("balance of user:{}",ctx.accounts.user_quote_vault.amount);
                 anchor_spl::token::transfer(
                     CpiContext::new(
                         ctx.accounts.token_program.to_account_info(),
@@ -157,6 +176,7 @@ pub mod orderbook {
                     ),
                     amount_to_lock,
                 )?;
+                msg!("Transfer successful");
                 open_order.quote_locked = open_order
                     .quote_locked
                     .checked_add(amount_to_lock)
@@ -166,6 +186,19 @@ pub mod orderbook {
                 let amount_to_lock = base_lots
                     .checked_mul(market.base_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
+                require!(
+                    ctx.accounts.user_base_vault.amount >= amount_to_lock,
+                    MarketError::InsufficientBaseBalance
+                );
+                require!(
+                    ctx.accounts.user_base_vault.owner == owner.key(),
+                    MarketError::InvalidTokenAccountOwner
+                );
+                require!(
+                    ctx.accounts.user_base_vault.mint == market.base_mint,
+                    MarketError::InvalidTokenMint
+                );
+              
                 anchor_spl::token::transfer(
                     CpiContext::new(
                         ctx.accounts.token_program.to_account_info(),
@@ -183,8 +216,19 @@ pub mod orderbook {
                     .ok_or(MarketError::MathOverflow)?;
             }
         }
-
-        
+        Slab::insert_order(
+            slab,
+            order_id,
+            base_lots,
+            ctx.accounts.owner.key(),
+            price_in_quote_lots,
+            created_order.order_status,
+            client_order_id,
+            &market.key(),
+            side
+        )?;
+        let pushed_order = OpenOrders::push_order(open_order, created_order)?;
+        msg!("order pushed : {:?} into the open order:", pushed_order);
         Ok(())
     }
     pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
@@ -207,17 +251,17 @@ pub mod orderbook {
             .iter()
             .find(|n| n.order_id == order_id)
             .unwrap();
-        let event = Event {
-            order_id,
-            price: order_from_event.price,
-            event_type: EventType::Cancel,
-            quantity: order_from_event.quantity,
-            maker: order_from_event.maker,
-            taker: order_from_event.taker,
-            timestamp: order_from_event.timestamp,
-        };
-        emit!(event);
-        EventQueue::insert_event(event_queue, &event)?;
+        // let event = QueueEvent {
+        //     order_id,
+        //     price: order_from_event.price,
+        //     event_type: EventType::Cancel,
+        //     quantity: order_from_event.quantity,
+        //     maker: order_from_event.maker,
+        //     taker: order_from_event.taker,
+        //     timestamp: order_from_event.timestamp,
+        // };
+        // emit!(event);
+        // EventQueue::insert_event(event_queue, &event)?;
         match order.side {
             Side::Ask => {
                 let locked_base = order.quantity;
@@ -302,76 +346,76 @@ pub mod orderbook {
 
         Ok(())
     }
-    pub fn consume_events(ctx: Context<ConsumeEvents>, limit: u16) -> Result<()> {
-        let event_queue = &mut ctx.accounts.event_queue;
-        let open_orders = &mut ctx.accounts.open_orders;
-        let market = &ctx.accounts.market;
+    // pub fn consume_events(ctx: Context<ConsumeEvents>, limit: u16) -> Result<()> {
+    //     let event_queue = &mut ctx.accounts.event_queue;
+    //     let open_orders = &mut ctx.accounts.open_orders;
+    //     let market = &ctx.accounts.market;
 
-        let to_process = std::cmp::min(limit as usize, event_queue.events.len());
+    //     let to_process = std::cmp::min(limit as usize, event_queue.events.len());
 
-        for _ in 0..to_process {
-            if event_queue.events.is_empty() {
-                break;
-            }
+    //     for _ in 0..to_process {
+    //         if event_queue.events.is_empty() {
+    //             break;
+    //         }
 
-            let event = event_queue.events.remove(0);
-            event_queue.count = event_queue.count.saturating_sub(1);
+    //         let event = event_queue.events.remove(0);
+    //         event_queue.count = event_queue.count.saturating_sub(1);
 
-            // Update if this user was involved
-            if event.maker == open_orders.owner {
-                // User was SELLER (maker)
-                let base_amount = event
-                    .quantity
-                    .checked_mul(market.base_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
-                let quote_amount = event
-                    .quantity
-                    .checked_mul(event.price)
-                    .ok_or(MarketError::MathOverflow)?
-                    .checked_mul(market.quote_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
+    //         // Update if this user was involved
+    //         if event.maker == open_orders.owner {
+    //             // User was SELLER (maker)
+    //             let base_amount = event
+    //                 .quantity
+    //                 .checked_mul(market.base_lot_size)
+    //                 .ok_or(MarketError::MathOverflow)?;
+    //             let quote_amount = event
+    //                 .quantity
+    //                 .checked_mul(event.price)
+    //                 .ok_or(MarketError::MathOverflow)?
+    //                 .checked_mul(market.quote_lot_size)
+    //                 .ok_or(MarketError::MathOverflow)?;
 
-                open_orders.base_locked = open_orders
-                    .base_locked
-                    .checked_sub(base_amount)
-                    .ok_or(ErrorCode::UnderFlow)?;
-                open_orders.quote_free = open_orders
-                    .quote_free
-                    .checked_add(quote_amount)
-                    .ok_or(ErrorCode::OverFlow)?;
-            }
+    //             open_orders.base_locked = open_orders
+    //                 .base_locked
+    //                 .checked_sub(base_amount)
+    //                 .ok_or(ErrorCode::UnderFlow)?;
+    //             open_orders.quote_free = open_orders
+    //                 .quote_free
+    //                 .checked_add(quote_amount)
+    //                 .ok_or(ErrorCode::OverFlow)?;
+    //         }
 
-            if event.taker == open_orders.owner {
-                // User was BUYER (taker)
-                let base_amount = event
-                    .quantity
-                    .checked_mul(market.base_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
-                let quote_amount = event
-                    .quantity
-                    .checked_mul(event.price)
-                    .ok_or(MarketError::MathOverflow)?
-                    .checked_mul(market.quote_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
+    //         if event.taker == open_orders.owner {
+    //             // User was BUYER (taker)
+    //             let base_amount = event
+    //                 .quantity
+    //                 .checked_mul(market.base_lot_size)
+    //                 .ok_or(MarketError::MathOverflow)?;
+    //             let quote_amount = event
+    //                 .quantity
+    //                 .checked_mul(event.price)
+    //                 .ok_or(MarketError::MathOverflow)?
+    //                 .checked_mul(market.quote_lot_size)
+    //                 .ok_or(MarketError::MathOverflow)?;
 
-                open_orders.quote_locked = open_orders
-                    .quote_locked
-                    .checked_sub(quote_amount)
-                    .ok_or(ErrorCode::UnderFlow)?;
-                open_orders.base_free = open_orders
-                    .base_free
-                    .checked_add(base_amount)
-                    .ok_or(ErrorCode::OverFlow)?;
-            }
-        }
+    //             open_orders.quote_locked = open_orders
+    //                 .quote_locked
+    //                 .checked_sub(quote_amount)
+    //                 .ok_or(ErrorCode::UnderFlow)?;
+    //             open_orders.base_free = open_orders
+    //                 .base_free
+    //                 .checked_add(base_amount)
+    //                 .ok_or(ErrorCode::OverFlow)?;
+    //         }
+    //     }
 
-        msg!("Consumed {} events", to_process);
-        Ok(())
-    }
+    //     msg!("Consumed {} events", to_process);
+    //     Ok(())
+    // }
     pub fn initialize_open_order(ctx: Context<InitializeOpenOrder>) -> Result<()> {
         let open_order = &mut ctx.accounts.open_order;
-        open_order.market =  ctx.accounts.market.key();
-        open_order.owner =  ctx.accounts.owner.key();
+        open_order.market = ctx.accounts.market.key();
+        open_order.owner = ctx.accounts.owner.key();
         open_order.base_free = 0;
         open_order.base_locked = 0;
         open_order.orders_count = 0;
@@ -382,7 +426,6 @@ pub mod orderbook {
     }
 }
 
-
 // TODO:implement consume event instn  and settle fund instn
 #[derive(Accounts)]
 pub struct InitializeMarket<'info> {
@@ -391,10 +434,10 @@ pub struct InitializeMarket<'info> {
     pub market: Account<'info, Market>,
 
     // Orderbook slabs
-    #[account(init, payer = admin, space = 8 + Slab::INIT_SPACE)]
+    #[account(init, seeds = [b"bids",market.key().as_ref()], payer = admin, space = 8 + Slab::INIT_SPACE,bump)]
     pub bids: Account<'info, Slab>,
 
-    #[account(init, payer = admin, space = 8 + Slab::INIT_SPACE)]
+    #[account(init, seeds = [b"asks",market.key().as_ref()] , payer = admin, space = 8 + Slab::INIT_SPACE,bump)]
     pub asks: Account<'info, Slab>,
 
     // Event queue
@@ -428,7 +471,7 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub vault_signer: UncheckedAccount<'info>,
-    
+
     // Admin signing the transaction
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -447,10 +490,10 @@ pub struct PlaceOrder<'info> {
     #[account(mut)]
     pub market: Account<'info, Market>,
 
-    #[account(mut)]
+    #[account(mut, seeds = [b"asks",market.key().as_ref()],bump)]
     pub asks: Account<'info, Slab>,
 
-    #[account(mut)]
+    #[account(mut, seeds = [b"bids",market.key().as_ref()],bump)]
     pub bids: Account<'info, Slab>,
 
     #[account(
@@ -510,11 +553,11 @@ pub struct CancelOrder<'info> {
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
-    #[account(mut)]
-    pub bids: Account<'info, Slab>,
-
-    #[account(mut)]
+    #[account(mut, seeds = [b"asks",market.key().as_ref()],bump)]
     pub asks: Account<'info, Slab>,
+
+    #[account(mut, seeds = [b"bids",market.key().as_ref()],bump)]
+    pub bids: Account<'info, Slab>,
 
     #[account(mut)]
     pub quote_vault: Account<'info, AnchorTokenAccount>,
