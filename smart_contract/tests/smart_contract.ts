@@ -14,12 +14,12 @@ describe("orderbook", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.orderbook as Program<Orderbook>;
   const payer = provider.wallet as anchor.Wallet;
-  
+
   let marketKeypair: web3.Keypair;
   let baseMint: web3.PublicKey;
   let quoteMint: web3.PublicKey;
   let marketInfo: any;
- 
+
   let bidsKeypair: web3.Keypair;
   let asksKeypair: web3.Keypair;
   let eventQueueKeypair: web3.Keypair;
@@ -52,6 +52,7 @@ describe("orderbook", () => {
       null,
       6
     );
+    console.log("quote mint:", quoteMint.toString())
     const [bidsPda] = web3.PublicKey.findProgramAddressSync(
       [Buffer.from("bids"), marketKeypair.publicKey.toBuffer()],
       program.programId
@@ -61,7 +62,7 @@ describe("orderbook", () => {
       [Buffer.from("asks"), marketKeypair.publicKey.toBuffer()],
       program.programId
     );
-    
+
     await program.methods
       .initialiseMarket(new BN(1000), new BN(1000), new BN(10), new BN(20))
       .accounts({
@@ -84,7 +85,7 @@ describe("orderbook", () => {
       .rpc();
 
     marketInfo = await program.account.market.fetch(marketKeypair.publicKey);
-      console.log("market info:",marketInfo)
+    console.log("market info:", marketInfo)
     const initialBids = await program.account.slab.fetch(marketInfo.bids);
     const initialAsks = await program.account.slab.fetch(marketInfo.asks);
     baselineBidsCount = initialBids.leafCount;
@@ -283,7 +284,7 @@ describe("orderbook", () => {
     const maxBaseQty = new BN(5_000_000);
     const clientOrderId = new BN(23230);
     const price = new BN(100);
-
+    console.log("fetching started..")
     await program.methods
       .placeOrder(maxBaseQty, clientOrderId, price, { limit: {} }, { bid: {} })
       .accounts({
@@ -301,10 +302,11 @@ describe("orderbook", () => {
       })
       .signers([bidUser])
       .rpc();
-
+    console.log("fetching started..")
     const openOrderAccount = await program.account.openOrders.fetch(
       openOrderPda
     );
+    console.log("open order :", openOrderAccount.orders)
     const bidsAfter = await program.account.slab.fetch(marketInfo.bids);
     const asksAfter = await program.account.slab.fetch(marketInfo.asks);
     const eventAccount = await program.account.eventQueue.fetch(
