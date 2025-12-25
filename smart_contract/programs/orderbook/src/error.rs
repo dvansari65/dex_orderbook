@@ -11,7 +11,11 @@ pub enum OrderError {
     #[msg("Orders exceeded!")]
     OrderFull,
     #[msg("No free space for the order!")]
-    NoSpace
+    NoSpace,
+    #[msg("Quantity underflow!")]
+    UnderFlow,
+    #[msg("Quantity Overflow!")]
+    OverFlow
 }
 
 #[error_code]
@@ -25,8 +29,20 @@ pub enum MarketError {
     #[msg("No orders")]
     NoOrders,
     #[msg("Order id overflow!")]
-    OrderIdOverFlow
+    OrderIdOverFlow,
+    #[msg("insufficient balance!")]
+    InsufficientQuoteBalance,
+    #[msg("insufficient balance!")]
+    InsufficientBaseBalance,
+    #[msg("Invalid token owner!")]
+    InvalidTokenAccountOwner,
+    #[msg("Invalid token Mint!")]
+    InvalidTokenMint,
+    #[msg("Destination vault is uninitialise!")]
+    DestinationVaultUninitialized
+
 }
+
 
 #[error_code]
 pub enum OpenOrderError {
