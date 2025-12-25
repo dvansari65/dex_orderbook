@@ -3,6 +3,7 @@ use crate::states::order_schema::enums::Side;
 
 // Events for indexers
 #[event]
+#[derive(Debug)]
 pub struct OrderPlacedEvent {
     pub market: Pubkey,
     pub owner: Pubkey,
@@ -101,6 +102,7 @@ pub struct TimeInForceEvent {
 }
 
 // Helper functions for emitting events
+// Helper function for emitting events
 pub fn emit_order_placed(
     market: Pubkey,
     owner: Pubkey,
@@ -109,7 +111,11 @@ pub fn emit_order_placed(
     side: Side,
     price: u64,
     base_lots: u64,
-) {
+) -> Result<()> {  //  Changed to Result<()>
+    msg!("EMITTING OrderPlacedEvent");
+    msg!("Market: {}, Owner: {}", market, owner);
+    msg!("OrderID: {}, Price: {}, Quantity: {}", order_id, price, base_lots);
+    
     emit!(OrderPlacedEvent {
         market,
         owner,
@@ -118,8 +124,11 @@ pub fn emit_order_placed(
         side,
         price,
         base_lots,
-        timestamp: Clock::get().unwrap().unix_timestamp,
+        timestamp: Clock::get()?.unix_timestamp,  // Use ? instead of unwrap
     });
+    
+    msg!("OrderPlacedEvent EMITTED");
+    Ok(())  
 }
 
 pub fn emit_order_fill(
@@ -153,8 +162,20 @@ pub fn emit_partial_fill_order (
     price: u64,
     base_lots_filled: u64,
     base_lots_remaining: u64,
-) {
+)->Result<OrderPartialFillEvent> {
     emit!(OrderPartialFillEvent {
+        maker,
+        maker_order_id,
+        taker,
+        taker_order_id,
+        side,
+        price,
+        base_lots_filled,
+        base_lots_remaining,
+        timestamp: Clock::get().unwrap().unix_timestamp,
+    });
+   
+    Ok(OrderPartialFillEvent {
         maker,
         maker_order_id,
         taker,
