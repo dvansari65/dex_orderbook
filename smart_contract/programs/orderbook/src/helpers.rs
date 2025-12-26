@@ -57,7 +57,6 @@ impl Slab {
             self.free_list_len -= 1;
         }
         self.update_links(insert_position)?;
-        msg!("freel list len:{:?}", self.free_list_len);
         self.leaf_count += 1;
         msg!(
             "Order inserted: {} @ price {} (total orders: {})",

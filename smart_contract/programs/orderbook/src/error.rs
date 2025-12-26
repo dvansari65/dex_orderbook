@@ -39,7 +39,9 @@ pub enum MarketError {
     #[msg("Invalid token Mint!")]
     InvalidTokenMint,
     #[msg("Destination vault is uninitialise!")]
-    DestinationVaultUninitialized
+    DestinationVaultUninitialized,
+    #[msg("Invalid market account!")]
+    InvalidMarketAccount
 
 }
 
@@ -64,7 +66,13 @@ pub enum EventError {
 #[error_code]
 pub enum SlabError {
     #[msg("Order not found in the Slab!")]
-    OrderNotFound
+    OrderNotFound,
+    #[msg("Invalid quantity!")]
+    InvalidQty,
+    #[msg("Invalid price!")]
+    InvalidPrice,
+    #[msg("Duplicate order id!")]
+    DuplicateOrderId,
 }
 
 #[error_code]
