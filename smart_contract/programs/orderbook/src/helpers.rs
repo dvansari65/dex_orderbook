@@ -38,17 +38,17 @@ impl Slab {
             order_status,
         };
 
-        let insert_position = self.find_insert_position(price)?;
+        let insert_position = self.find_insert_position(price,side)?;
         msg!("insert position:{:?}", insert_position);
         if insert_position == self.nodes.len() {
             self.nodes.push(new_node);
             self.free_list_len -= 1;
+            self.update_links(insert_position)?;
         } else {
             self.nodes.push(new_node);
             self.update_links(insert_position)?;
             self.free_list_len -= 1;
         }
-        self.update_links(insert_position)?;
         msg!("freel list len:{:?}", self.free_list_len);
         self.leaf_count += 1;
         msg!(
@@ -58,14 +58,34 @@ impl Slab {
             self.leaf_count
         );
         emit_order_placed(*market, owner, order_id, client_order_id, side, price, quantity)?;
+        msg!("slab data:{:?}",self.nodes);
         msg!("Event emission completed");
         Ok(())
     }
 
-    pub fn find_insert_position(&self, price: u64) -> Result<usize> {
-        for (i, node) in self.nodes.iter().enumerate() {
-            if price < node.price {
-                return Ok(i);
+    pub fn find_insert_position(&self, price: u64, side: Side) -> Result<usize> {
+        match side {
+            Side::Bid => {
+                // For BIDS: higher prices first (descending)
+                for (i, node) in self.nodes.iter().enumerate() {
+                    if price > node.price {  // Insert before lower prices
+                        return Ok(i);
+                    }
+                    if price == node.price {
+                        return Ok(i);
+                    }
+                }
+            }
+            Side::Ask => {
+                // For ASKS: lower prices first (ascending) - your current logic
+                for (i, node) in self.nodes.iter().enumerate() {
+                    if price < node.price {
+                        return Ok(i);
+                    }
+                    if price == node.price {
+                        return Ok(i);
+                    }
+                }
             }
         }
         Ok(self.nodes.len())
