@@ -4,7 +4,7 @@ use std::{ u32};
 use anchor_lang::{ prelude::*};
 
 use crate::error::{
-    EventError, OpenOrderError, OrderError, SlabError,
+    EventError, MarketError, OpenOrderError, OrderError, SlabError
 };
 use crate::events::*;
 use crate::state::{ EventQueue, EventType, OrderStatus, QueueEvent};
@@ -25,7 +25,16 @@ impl Slab {
     ) -> Result<()> {
         require!(self.nodes.len() < 32, OrderError::OrderbookFull);
         require!(self.free_list_len > 0, OrderError::NoSpace);
-
+        require!(quantity > 0,SlabError::InvalidQty);
+        require!(price > 0 , SlabError::InvalidPrice);
+        require!(
+            !self.nodes.iter().any(|n| n.order_id == order_id),
+            SlabError::DuplicateOrderId
+        );
+        require!(
+            *market != Pubkey::default(),
+            MarketError::InvalidMarketAccount
+        );
         let new_node = Node {
             price,
             quantity,
@@ -41,10 +50,10 @@ impl Slab {
         let insert_position = self.find_insert_position(price)?;
         msg!("insert position:{:?}", insert_position);
         if insert_position == self.nodes.len() {
-            self.nodes.insert(insert_position, new_node);
+            self.nodes.insert(insert_position,new_node);
             self.free_list_len -= 1;
         } else {
-            self.nodes.push(new_node);
+            self.nodes.insert(insert_position, new_node);
             self.free_list_len -= 1;
         }
         self.update_links(insert_position)?;
