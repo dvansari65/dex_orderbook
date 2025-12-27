@@ -1,5 +1,5 @@
 
-use std::{ u32};
+use std::u32;
 
 use anchor_lang::{ prelude::*};
 
@@ -81,16 +81,36 @@ impl Slab {
         }
         Ok(self.nodes.len())
     }
-    pub fn update_links(&mut self, index: usize) -> Result<()> {
-        if index > 0 {
-            self.nodes[index as usize].prev = (index - 1) as u32;
-            self.nodes[(index - 1) as usize].next = (index) as u32;
-        }
-        if index < (self.nodes.len()) - 1 {
-            self.nodes[index as usize].next = (index + 1) as u32;
-            self.nodes[(index + 1) as usize].prev = index as u32;
-        }
-        Ok(())
+    pub fn update_links(&mut self, inserted_index: usize) -> Result<()> {
+       let len = self.nodes.len();
+       require!(inserted_index < len, SlabError::InvalidIndex);
+       if len == 1 {
+        self.nodes[0].prev = u32::MAX;
+        self.nodes[0].next = u32::MAX;
+        return Ok(())
+       }
+       let next_index = inserted_index + 1;
+       let prev_index = inserted_index - 1;
+
+       if inserted_index == len - 1 {
+        self.nodes[inserted_index].next = u32::MAX;
+        self.nodes[inserted_index].prev = prev_index as u32;
+        self.nodes[inserted_index - 1].next = inserted_index as u32;
+        msg!("Inserted at tail");
+        return Ok(())
+       }
+       if inserted_index == 0 {
+        self.nodes[inserted_index].prev = u32::MAX;
+        self.nodes[inserted_index].next = next_index as u32;
+        self.nodes[next_index].prev = 0;
+        return Ok(())
+       }
+       self.nodes[inserted_index].next = next_index as u32;
+       self.nodes[inserted_index].prev = prev_index as u32;
+       self.nodes[prev_index].next = inserted_index as u32;
+       self.nodes[next_index].prev = inserted_index as u32;
+       msg!("Inserted in middle: {} -> {} -> {}", prev_index, inserted_index, next_index);
+    Ok(())
     }
     pub fn update_links_after_removing(&mut self, removed_index: usize) -> Result<()> {
         let len = self.nodes.len();
