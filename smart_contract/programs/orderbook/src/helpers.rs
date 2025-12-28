@@ -236,6 +236,8 @@ pub fn match_orders(
 
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         let best_opposite = opposite_slab.nodes.first_mut().unwrap();
+
+        msg!("This is the best opposite:{:?}",best_opposite);
         
         if (side == Side::Ask && order.price > best_opposite.price)
             || (side == Side::Bid && order.price < best_opposite.price)
@@ -282,7 +284,7 @@ pub fn match_orders(
                 order.price,
                 fill_qty,
                 order.quantity,
-            );
+            )?;
             let event = QueueEvent {
                 event_type:EventType::Fill,
                 order_id:order.order_id,
@@ -298,7 +300,7 @@ pub fn match_orders(
         } else {
             best_opposite.order_status = OrderStatus::PartialFill;
             msg!("Order partially filled");
-            let emitted_event = emit_partial_fill_order(
+            let _emitted_event = emit_partial_fill_order(
                 order.owner,
                 order.client_order_id,
                 best_opposite_owner,
@@ -307,10 +309,8 @@ pub fn match_orders(
                 order.price,
                 fill_qty,
                 order.quantity,
-            );
-            if emitted_event.is_ok(){
-                msg!("partially order filled event emitted");
-            }
+            )?;
+            msg!("Partial order fill event emitted");
             let event = QueueEvent {
                 event_type:EventType::PartialFill,
                 order_id:order.order_id,
