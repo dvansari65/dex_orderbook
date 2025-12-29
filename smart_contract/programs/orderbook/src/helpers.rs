@@ -1,15 +1,12 @@
-
 use std::u32;
 
-use anchor_lang::{ prelude::*};
+use anchor_lang::prelude::*;
 
-use crate::error::{
-    EventError, MarketError, OpenOrderError, OrderError, SlabError
-};
+use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::events::*;
-use crate::state::{ EventQueue, EventType, Market, OrderStatus, QueueEvent};
+use crate::state::{EventQueue, EventType, Market, OrderStatus, QueueEvent};
 
-use crate::state::{ Node, OpenOrders, Order, Slab};
+use crate::state::{Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
 impl Slab {
     pub fn insert_order(
@@ -19,14 +16,14 @@ impl Slab {
         owner: Pubkey,
         price: u64,
         order_status: OrderStatus,
-        client_order_id:u64,
-        market:&Pubkey,
-        side:Side,
+        client_order_id: u64,
+        market: &Pubkey,
+        side: Side,
     ) -> Result<()> {
         require!(self.nodes.len() < 32, OrderError::OrderbookFull);
         require!(self.free_list_len > 0, OrderError::NoSpace);
-        require!(quantity > 0,SlabError::InvalidQty);
-        require!(price > 0 , SlabError::InvalidPrice);
+        require!(quantity > 0, SlabError::InvalidQty);
+        require!(price > 0, SlabError::InvalidPrice);
         require!(
             !self.nodes.iter().any(|n| n.order_id == order_id),
             SlabError::DuplicateOrderId
@@ -47,10 +44,10 @@ impl Slab {
             order_status,
         };
 
-        let insert_position = self.find_insert_position(price)?;
+        let insert_position = self.find_insert_position(price, side)?;
         msg!("insert position:{:?}", insert_position);
         if insert_position == self.nodes.len() {
-            self.nodes.insert(insert_position,new_node);
+            self.nodes.push(new_node);
             self.free_list_len -= 1;
         } else {
             self.nodes.insert(insert_position, new_node);
@@ -64,57 +61,76 @@ impl Slab {
             price,
             self.leaf_count
         );
-        emit_order_placed(*market, owner, order_id, client_order_id, side, price, quantity)?;
-        msg!("slab data:{:?}",self.nodes);
+        emit_order_placed(
+            *market,
+            owner,
+            order_id,
+            client_order_id,
+            side,
+            price,
+            quantity,
+        )?;
+        msg!("slab data:{:?}", self.nodes);
         msg!("Event emission completed");
         Ok(())
     }
 
-    pub fn find_insert_position(&self, price: u64) -> Result<usize> {
+    pub fn find_insert_position(&self, price: u64, side: Side) -> Result<usize> {
         for (i, node) in self.nodes.iter().enumerate() {
-            if price < node.price {
-                return Ok(i);
-            }
-            if price == node.price {
-                return Ok(i);
+            match side {
+                Side::Ask => {
+                    if price < node.price {
+                        return Ok(i);
+                    }
+                }
+                Side::Bid => {
+                    if price > node.price {
+                        return Ok(i);
+                    }
+                }
             }
         }
         Ok(self.nodes.len())
     }
     pub fn update_links(&mut self, inserted_index: usize) -> Result<()> {
-       let len = self.nodes.len();
-       require!(inserted_index < len, SlabError::InvalidIndex);
+        let len = self.nodes.len();
+        require!(inserted_index < len, SlabError::InvalidIndex);
 
-       if len == 1 {
-        self.nodes[0].prev = u32::MAX;
-        self.nodes[0].next = u32::MAX;
-        return Ok(());
-    }
-    
-    if inserted_index == 0 {
-        self.nodes[inserted_index].prev = u32::MAX;
-        self.nodes[inserted_index].next = (inserted_index as u32) + 1;
-        self.nodes[inserted_index + 1].prev = 0;
-        return Ok(());
-    }
-    
-    if inserted_index == len - 1 {
-        self.nodes[inserted_index].next = u32::MAX;
-        self.nodes[inserted_index].prev = (inserted_index as u32) - 1;
-        self.nodes[inserted_index - 1].next = inserted_index as u32;
-        msg!("Inserted at tail");
-        return Ok(());
-    }
+        if len == 1 {
+            self.nodes[0].prev = u32::MAX;
+            self.nodes[0].next = u32::MAX;
+            return Ok(());
+        }
 
-       let next_index = inserted_index + 1;
-       let prev_index = inserted_index - 1;
+        if inserted_index == 0 {
+            self.nodes[inserted_index].prev = u32::MAX;
+            self.nodes[inserted_index].next = (inserted_index as u32) + 1;
+            self.nodes[inserted_index + 1].prev = 0;
+            return Ok(());
+        }
 
-       self.nodes[inserted_index].next = next_index as u32;
-       self.nodes[inserted_index].prev = prev_index as u32;
-       self.nodes[prev_index].next = inserted_index as u32;
-       self.nodes[next_index].prev = inserted_index as u32;
-       msg!("Inserted in middle: {} -> {} -> {}", prev_index, inserted_index, next_index);
-    Ok(())
+        if inserted_index == len - 1 {
+            self.nodes[inserted_index].next = u32::MAX;
+            self.nodes[inserted_index].prev = (inserted_index as u32) - 1;
+            self.nodes[inserted_index - 1].next = inserted_index as u32;
+            msg!("Inserted at tail");
+            return Ok(());
+        }
+
+        let next_index = inserted_index + 1;
+        let prev_index = inserted_index - 1;
+
+        self.nodes[inserted_index].next = next_index as u32;
+        self.nodes[inserted_index].prev = prev_index as u32;
+        self.nodes[prev_index].next = inserted_index as u32;
+        self.nodes[next_index].prev = inserted_index as u32;
+        msg!(
+            "Inserted in middle: {} -> {} -> {}",
+            prev_index,
+            inserted_index,
+            next_index
+        );
+        Ok(())
     }
     pub fn update_links_after_removing(&mut self, removed_index: usize) -> Result<()> {
         let len = self.nodes.len();
@@ -223,13 +239,12 @@ pub struct MatchResult {
 }
 
 pub fn match_orders(
-    side: Side, 
-    order: &mut Order, 
-    asks: &mut Slab, 
+    side: Side,
+    order: &mut Order,
+    asks: &mut Slab,
     bids: &mut Slab,
-    event_queue  :&mut EventQueue
+    event_queue: &mut EventQueue,
 ) -> Result<MatchResult> {
-
     let (opposite_slab, _same_side_slab) = match side {
         Side::Ask => (bids, asks),
         Side::Bid => (asks, bids),
@@ -241,8 +256,8 @@ pub fn match_orders(
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         let best_opposite = opposite_slab.nodes.first_mut().unwrap();
 
-        msg!("This is the best opposite:{:?}",best_opposite);
-        
+        msg!("This is the best opposite:{:?}", best_opposite);
+
         if (side == Side::Ask && order.price > best_opposite.price)
             || (side == Side::Bid && order.price < best_opposite.price)
         {
@@ -251,17 +266,19 @@ pub fn match_orders(
         }
 
         let fill_qty = best_opposite.quantity.min(order.quantity);
-        let quote_qty = fill_qty.checked_mul(best_opposite.price)
+        let quote_qty = fill_qty
+            .checked_mul(best_opposite.price)
             .ok_or(OrderError::OverFlow)?;
-        
-        total_quote_qty = total_quote_qty.checked_add(quote_qty)
+
+        total_quote_qty = total_quote_qty
+            .checked_add(quote_qty)
             .ok_or(OrderError::OverFlow)?;
 
         order.quantity = order
             .quantity
             .checked_sub(fill_qty)
             .ok_or(OrderError::UnderFlow)?;
-            
+
         best_opposite.quantity = best_opposite
             .quantity
             .checked_sub(fill_qty)
@@ -269,16 +286,20 @@ pub fn match_orders(
 
         let best_opposite_id = best_opposite.order_id;
         let best_opposite_owner = best_opposite.owner;
-        let is_filled = best_opposite.quantity == 0;
+        let is_filled = order.quantity == 0;
 
-        msg!("Match found - fill_qty: {}, price: {}", fill_qty, order.price);
+        msg!(
+            "Match found - fill_qty: {}, price: {}",
+            fill_qty,
+            order.price
+        );
 
         if is_filled {
             best_opposite.order_status = OrderStatus::Fill;
             msg!("Order fully filled - removing from book");
 
             opposite_slab.remove_order(&best_opposite_id)?;
-            
+
             emit_order_fill(
                 order.owner,
                 order.client_order_id,
@@ -290,15 +311,15 @@ pub fn match_orders(
                 order.quantity,
             )?;
             let event = QueueEvent {
-                event_type:EventType::Fill,
-                order_id:order.order_id,
-                owner:order.owner,
-                counterparty:best_opposite_owner,
-                side:side,
-                price:order.price,
-                base_quantity:fill_qty,
-                client_order_id:order.client_order_id,
-                timestamp:Clock::get()?.unix_timestamp
+                event_type: EventType::Fill,
+                order_id: order.order_id,
+                owner: order.owner,
+                counterparty: best_opposite_owner,
+                side: side,
+                price: order.price,
+                base_quantity: fill_qty,
+                client_order_id: order.client_order_id,
+                timestamp: Clock::get()?.unix_timestamp,
             };
             event_queue.insert_event(event)?;
         } else {
@@ -316,15 +337,15 @@ pub fn match_orders(
             )?;
             msg!("Partial order fill event emitted");
             let event = QueueEvent {
-                event_type:EventType::PartialFill,
-                order_id:order.order_id,
-                owner:order.owner,
-                counterparty:best_opposite_owner,
-                side:side,
-                price:order.price,
-                base_quantity:fill_qty,
-                client_order_id:order.client_order_id,
-                timestamp:Clock::get()?.unix_timestamp
+                event_type: EventType::PartialFill,
+                order_id: order.order_id,
+                owner: order.owner,
+                counterparty: best_opposite_owner,
+                side: side,
+                price: order.price,
+                base_quantity: fill_qty,
+                client_order_id: order.client_order_id,
+                timestamp: Clock::get()?.unix_timestamp,
             };
             event_queue.insert_event(event)?;
         }
@@ -336,7 +357,7 @@ pub fn match_orders(
     }
 
     let filled_quantity = initial_quantity - order.quantity;
-    
+
     Ok(MatchResult {
         filled_quantity,
         remaining_quantity: order.quantity,
@@ -345,25 +366,158 @@ pub fn match_orders(
     })
 }
 
-pub fn match_post_only_orders (
-    asks:&Slab,
-    bids:&Slab,
-    side:Side,
-    order:&Order
-)->Result<()>{
+pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<()> {
     let best_opposite_bid = bids.nodes.first().unwrap();
-    let best_opposite_ask = asks.nodes.last().unwrap();
-    msg!("best ask:{:?} & best bid:{:?}",best_opposite_ask,best_opposite_bid);
+    let best_opposite_ask = asks.nodes.first().unwrap();
+    msg!(
+        "best ask:{:?} & best bid:{:?}",
+        best_opposite_ask,
+        best_opposite_bid
+    );
     if side == Side::Ask && order.price <= best_opposite_bid.price {
         msg!("Best bid is greater than selling price, so order can match, returning...");
-       return Ok(())
+        return Ok(());
     }
     if side == Side::Bid && order.price >= best_opposite_ask.price {
         msg!("Bidding price is greater than best ask price, so order can match,returning...");
-        return Ok(())
+        return Ok(());
     }
-    
+
     Ok(())
+}
+
+pub fn match_ioc_orders(
+    asks: &mut Slab,
+    bids: &mut Slab,
+    side: Side,
+    order: &mut Order,
+) -> Result<()> {
+   match side {
+       Side::Ask =>{
+            if asks.nodes.is_empty(){
+                return Ok(())
+            }
+            let maker_order_id;
+            let maker_owner;
+            let is_filled_user;
+            let is_filled_existing_user;
+            let available_qty;
+            {
+                let best_bid = bids.nodes.first_mut().unwrap();
+                if order.price > best_bid.price {
+                    return Ok(());
+                }
+                available_qty = best_bid.quantity.min(order.quantity);
+
+                order.quantity = order
+                                .quantity
+                                .checked_sub(available_qty)
+                                .ok_or(OrderError::UnderFlow)?;
+                best_bid.quantity = best_bid
+                                .quantity
+                                .checked_sub(available_qty)
+                                .ok_or(SlabError::UnderFlow)?;
+                is_filled_existing_user = best_bid.quantity == 0;
+                
+                maker_owner = best_bid.owner;
+                maker_order_id = best_bid.order_id;
+            }
+            is_filled_user = order.quantity == 0;
+            if is_filled_user {
+                msg!("order removed of user :{:?} and order id:{:?}", order.owner, order.order_id);
+                asks.remove_order(&order.order_id)?;
+            }
+            if is_filled_existing_user {
+                msg!("order removed of user :{:?} and order id:{:?}", maker_owner, maker_order_id);
+                asks.remove_order(&maker_order_id)?;
+            }
+            emit_order_fill(
+                maker_owner,
+                maker_order_id,
+                order.owner,
+                order.order_id,
+                side,
+                order.price,
+                available_qty,
+                0,
+            )?;
+       },
+       Side::Bid => {
+            if asks.nodes.is_empty(){
+                return Ok(());
+            }
+            
+            let maker_order_id;
+            let maker_owner;
+            let is_filled_user;
+            let is_filled_existing_user;
+            let available_qty;
+            let remaining_qty;
+            {
+                let best_ask = asks.nodes.first_mut().unwrap();
+                if order.price < best_ask.price {
+                    return Ok(())
+                }
+                available_qty = best_ask.quantity.min(order.quantity);
+                order.quantity = order      
+                                    .quantity
+                                    .checked_sub(available_qty)
+                                    .ok_or(OrderError::UnderFlow)?;
+                best_ask.quantity = best_ask
+                                    .quantity
+                                    .checked_sub(available_qty)
+                                    .ok_or(SlabError::UnderFlow)?;
+                maker_order_id = best_ask.order_id;
+                maker_owner = best_ask.owner;
+                is_filled_existing_user = best_ask.quantity == 0;
+                remaining_qty = best_ask.quantity;
+            }
+            is_filled_user = order.quantity == 0;
+            if !is_filled_user {
+                msg!("order removed of user :{:?} and order id:{:?}", order.owner, order.order_id);
+                emit_partial_fill_order(
+                    maker_owner,
+                    maker_order_id,
+                    order.owner,
+                    order.order_id,
+                    side,
+                    order.price,
+                    available_qty,
+                    order.quantity,
+                )?;
+                msg!("order partially filled! order ID :{:?}",order.order_id);
+            }
+            if !is_filled_existing_user {
+                msg!("order removed of user :{:?} and order id:{:?}", maker_owner, maker_order_id);
+                emit_partial_fill_order(
+                    maker_owner,
+                    maker_order_id,
+                    order.owner,
+                    order.order_id,
+                    side,
+                    order.price,
+                    available_qty,
+                    remaining_qty,
+                )?;
+                msg!("order partially filled! order ID :{:?}",order.order_id);
+            }
+
+            bids.remove_order(&order.order_id)?;
+            bids.remove_order(&maker_order_id)?;
+            emit_order_fill(
+                maker_owner,
+                    maker_order_id,
+                    order.owner,
+                    order.order_id,
+                    side,
+                    order.price,
+                    available_qty,
+                    remaining_qty,
+                )?;
+           msg!("Order partially filled! Order ID:{:?} and maker order ID:{:?}",order.order_id,maker_order_id);
+       }
+   }
+   Ok(())
 }
 
 impl EventQueue {
@@ -392,7 +546,10 @@ impl EventQueue {
         }
 
         self.head = (self.head + 1) % Self::CAPACITY as u32;
-        println!(">>>>event inserted!:{:?}  and order id : {:?}",self,self.events[0]);
+        println!(
+            ">>>>event inserted!:{:?}  and order id : {:?}",
+            self, self.events[0]
+        );
         Ok(())
     }
     pub fn pop_front(&mut self) -> Option<QueueEvent> {
