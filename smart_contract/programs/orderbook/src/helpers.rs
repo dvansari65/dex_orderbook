@@ -7,7 +7,7 @@ use crate::error::{
     EventError, MarketError, OpenOrderError, OrderError, SlabError
 };
 use crate::events::*;
-use crate::state::{ EventQueue, EventType, OrderStatus, QueueEvent};
+use crate::state::{ EventQueue, EventType, Market, OrderStatus, QueueEvent};
 
 use crate::state::{ Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
@@ -84,27 +84,31 @@ impl Slab {
     pub fn update_links(&mut self, inserted_index: usize) -> Result<()> {
        let len = self.nodes.len();
        require!(inserted_index < len, SlabError::InvalidIndex);
+
        if len == 1 {
         self.nodes[0].prev = u32::MAX;
         self.nodes[0].next = u32::MAX;
-        return Ok(())
-       }
+        return Ok(());
+    }
+    
+    if inserted_index == 0 {
+        self.nodes[inserted_index].prev = u32::MAX;
+        self.nodes[inserted_index].next = (inserted_index as u32) + 1;
+        self.nodes[inserted_index + 1].prev = 0;
+        return Ok(());
+    }
+    
+    if inserted_index == len - 1 {
+        self.nodes[inserted_index].next = u32::MAX;
+        self.nodes[inserted_index].prev = (inserted_index as u32) - 1;
+        self.nodes[inserted_index - 1].next = inserted_index as u32;
+        msg!("Inserted at tail");
+        return Ok(());
+    }
+
        let next_index = inserted_index + 1;
        let prev_index = inserted_index - 1;
 
-       if inserted_index == len - 1 {
-        self.nodes[inserted_index].next = u32::MAX;
-        self.nodes[inserted_index].prev = prev_index as u32;
-        self.nodes[inserted_index - 1].next = inserted_index as u32;
-        msg!("Inserted at tail");
-        return Ok(())
-       }
-       if inserted_index == 0 {
-        self.nodes[inserted_index].prev = u32::MAX;
-        self.nodes[inserted_index].next = next_index as u32;
-        self.nodes[next_index].prev = 0;
-        return Ok(())
-       }
        self.nodes[inserted_index].next = next_index as u32;
        self.nodes[inserted_index].prev = prev_index as u32;
        self.nodes[prev_index].next = inserted_index as u32;
@@ -339,6 +343,27 @@ pub fn match_orders(
         order_status: order.order_status,
         total_quote_qty,
     })
+}
+
+pub fn match_post_only_orders (
+    asks:&Slab,
+    bids:&Slab,
+    side:Side,
+    order:&Order
+)->Result<()>{
+    let best_opposite_bid = bids.nodes.first().unwrap();
+    let best_opposite_ask = asks.nodes.last().unwrap();
+    msg!("best ask:{:?} & best bid:{:?}",best_opposite_ask,best_opposite_bid);
+    if side == Side::Ask && order.price <= best_opposite_bid.price {
+        msg!("Best bid is greater than selling price, so order can match, returning...");
+       return Ok(())
+    }
+    if side == Side::Bid && order.price >= best_opposite_ask.price {
+        msg!("Bidding price is greater than best ask price, so order can match,returning...");
+        return Ok(())
+    }
+    
+    Ok(())
 }
 
 impl EventQueue {
