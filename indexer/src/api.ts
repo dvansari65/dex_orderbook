@@ -85,12 +85,13 @@ io.on("connect", async (socket) => {
       console.log("data is not converted at all!");
       socket.emit("error", { message: "Ask and bid is not converted at all!" });
     }
-    console.log("ask slab:",asks)
+    console.log("ask slab:",asks.nodes)
+
 
     socket.emit("initial-snapshot", {
       market: marketState,
-      asks: bids,
-      bids: bids,
+      asks: asks.nodes,
+      bids: bids.nodes,
       success: true,
       timestamp: Date.now(),
     });
@@ -98,13 +99,35 @@ io.on("connect", async (socket) => {
     // Stream program events live
     await listener.start(async (event) => {
       console.log("event from api:", event);
-      const updatedOrderbook = await fetchOrderBook(marketState, conversion);
-      socket.emit("orderbook-update", {
-        asks: updatedOrderbook.asks,
-        bids: updatedOrderbook.bids,
-        event: event.name,
-        timestamp: Date.now(),
-      });
+      if(event.name === "orderPlacedEvent"){
+        const payload = {
+          orderId:event.data.orderId,
+          quantity:event.data.baseLots,
+          price:event?.data?.price,
+          owner:event.data.owner
+        }
+        const convertedData = conversion.convertNode(payload)
+        if(!convertedData){
+          socket.emit("error",{message:"Event data not converted!"})
+        }
+        socket.emit("order-place-event",convertedData)
+      }
+      if(event.name === "orderFillEvevnt"){
+        socket.emit("order-fill-event",conversion.convertNode({
+          orderId:event.data.orderId,
+          quantity:event.data.baseLots,
+          price:event?.data?.price,
+          owner:event.data.owner
+        }))
+      }
+      if(event.name === "orderPartialFillEvent"){
+        socket.emit("order-fill-event",conversion.convertNode({
+          orderId:event.data.orderId,
+          quantity:event.data.baseLots,
+          price:event?.data?.price,
+          owner:event.data.owner
+        }))
+      }
     });
     // cancel on disconnect
     socket.on("disconnect", () => {
