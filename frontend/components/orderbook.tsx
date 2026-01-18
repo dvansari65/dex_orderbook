@@ -1,93 +1,190 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSocket } from "@/providers/SocketProvider";
-import { Slab, Node } from "@/types/slab";
+import InitialSnapShot from "./market/initial-snapshot";
+import { OrderPlacedEvent, Side } from "@/types/events";
+import OrderBookRow from "./market/initial-snapshot";
+
+interface OrderNode {
+  orderId: number;
+  price: number;
+  quantity: number;
+  owner: string;
+  side: Side;
+}
+
+interface PriceLevel {
+  price: number;
+  quantity: number;
+  total: number;
+  orders: OrderNode[];
+}
 
 export default function Orderbook() {
-  const [asks, setAsks] = useState<Slab | null>(null);
-  const [bids, setBids] = useState<Slab | null>(null);
-  
+  const [orderbook, setOrderBook] = useState<{
+    asks: Map<string, PriceLevel>;
+    bids: Map<string, PriceLevel>;
+  }>({
+    asks: new Map(),
+    bids: new Map(),
+  });
+
   const socket = useSocket();
+
+  // Convert Map to sorted array for rendering
+  const sortedAsks = useMemo(() => {
+    return Array.from(orderbook.asks.values())
+      .sort((a, b) => a.price - b.price) // Ascending (lowest first)
+      .slice(0, 7);
+  }, [orderbook.asks]);
+
+  const sortedBids = useMemo(() => {
+    return Array.from(orderbook.bids.values())
+      .sort((a, b) => b.price - a.price) // Descending (highest first)
+      .slice(0, 10);
+  }, [orderbook.bids]);
 
   useEffect(() => {
     if (!socket) return;
 
-    socket.on("initial-snapshot", (data: any) => {
+    // Initialize orderbook from snapshot
+    const handleInitialSnapshot = (data: any) => {
       console.log("initial snapshot:", data);
-      setAsks(data.asks);
-      setBids(data.bids);
-    });
-    socket.on("update-snapshot", (data: any) => {
-      console.log("updated snapshot:", data);
-      setAsks(data.asks);
-      setBids(data.bids);
-    });
+
+      const asksMap = new Map<string, PriceLevel>();
+      const bidsMap = new Map<string, PriceLevel>();
+
+      // Process asks
+      (data.asks || []).forEach((order: OrderNode) => {
+        const priceKey = order.price.toString();
+        const existing = asksMap.get(priceKey);
+
+        if (existing) {
+          existing.quantity += order.quantity;
+          existing.total += order.price * order.quantity;
+          existing.orders.push(order);
+        } else {
+          asksMap.set(priceKey, {
+            price: order.price,
+            quantity: order.quantity,
+            total: order.price * order.quantity,
+            orders: [order],
+          });
+        }
+      });
+
+      // Process bids
+      (data.bids || []).forEach((order: OrderNode) => {
+        const priceKey = order.price.toString();
+        const existing = bidsMap.get(priceKey);
+
+        if (existing) {
+          existing.quantity += order.quantity;
+          existing.total += order.price * order.quantity;
+          existing.orders.push(order);
+        } else {
+          bidsMap.set(priceKey, {
+            price: order.price,
+            quantity: order.quantity,
+            total: order.price * order.quantity,
+            orders: [order],
+          });
+        }
+      });
+
+      setOrderBook({ asks: asksMap, bids: bidsMap });
+    };
+
+    // Handle new order placement
+    const handleOrderPlaceEvent = (data: OrderPlacedEvent) => {
+      console.log("OrderPlacedEvent:", data);
+
+      const newOrder: OrderNode = {
+        orderId: data.orderId,
+        price: data.price,
+        quantity: data.quantity,
+        owner: data.owner.toString(),
+        side: data.side,
+      };
+
+      setOrderBook((prev) => {
+        const side = data.side === "bid" ? "bids" : "asks";
+        const priceKey = data.price.toString();
+
+        // Clone the Map for immutability
+        const updatedMap = new Map(prev[side]);
+        const existing = updatedMap.get(priceKey);
+
+        if (existing) {
+          // Update existing price level
+          updatedMap.set(priceKey, {
+            price: data.price,
+            quantity: existing.quantity + data.quantity,
+            total: existing.total + data.price * data.quantity,
+            orders: [...existing.orders, newOrder],
+          });
+        } else {
+          // Create new price level
+          updatedMap.set(priceKey, {
+            price: data.price,
+            quantity: data.quantity,
+            total: data.price * data.quantity,
+            orders: [newOrder],
+          });
+        }
+
+        return {
+          ...prev,
+          [side]: updatedMap,
+        };
+      });
+    };
+
+    socket.on("initial-snapshot", handleInitialSnapshot);
+    socket.on("order-place-event", handleOrderPlaceEvent);
 
     return () => {
-      socket.off("initial-snapshot");
+      socket.off("initial-snapshot", handleInitialSnapshot);
+      socket.off("order-place-event", handleOrderPlaceEvent);
     };
-  }, [socket,asks,bids]);
-
-  // Filter only leaf nodes (actual orders)
-  const getLeafNodes = (nodes: Node[] | []): Node[] => {
-    if (!nodes || nodes.length === 0) return [];
-    return nodes.filter((node: any) => node.price && node.quantity);
-  };
-
-  // Convert to number safely
-  const toNumber = (value: any): number => {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'bigint') return Number(value);
-    if (typeof value === 'string') return parseFloat(value);
-    return 0;
-  };
-
-  const askNodes = asks ? getLeafNodes(asks.nodes) : [];
-  const bidNodes = bids ? getLeafNodes(bids.nodes) : [];
+  }, [socket]);
 
   return (
-    <div className="w-full h-full" style={{ background: 'var(--phoenix-bg-subtle)' }}>
-      {/* Header */}
-      <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--phoenix-border-light)' }}>
+    <div className="w-full h-full rounded-2xl" style={{ background: '#FAF8F6' }}>
+      <div className="px-3 py-2">
         <h3 className="text-xs font-semibold" style={{ color: 'var(--phoenix-text-primary)' }}>
           Order Book
         </h3>
       </div>
 
-      {/* Column Headers */}
-      <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[10px] font-medium border-b" 
-           style={{ 
-             color: 'var(--phoenix-text-subtle)',
-             borderColor: 'var(--phoenix-border-light)' 
-           }}>
+      <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[10px] font-medium"
+        style={{
+          color: 'var(--phoenix-text-subtle)',
+        }}>
         <div className="text-left">Price</div>
-        <div className="text-right">Size</div>
-        <div className="text-right">Owner</div>
+        <div className="text-right">
+          <span className="mr-1 text-gray-500">AMOUNT</span>
+          <span>SOL</span>
+        </div>
+        <div className="text-right">
+          <span className="mr-1 text-gray-500">AMOUNT</span>
+          <span>USDC</span>
+        </div>
       </div>
 
-      <div className="flex flex-col h-[calc(100%-80px)] overflow-hidden">
-        {/* ASKS - Red (Sell orders) */}
-        <div className="relative flex-1 overflow-y-auto">
-          {askNodes.length > 0 ? (
-            askNodes.slice(0, 15).map((node) => (
-              <div
-                key={`ask-${node?.orderId}`}
-                className="relative grid grid-cols-3 gap-2 px-3 py-1.5 text-[11px] hover:opacity-80 cursor-pointer transition-opacity"
-              >
-                {/* Price - Red */}
-                <div className="relative z-10 font-medium" style={{ color: '#EF4444' }}>
-                  {toNumber(node.price).toFixed(2)}
-                </div>
-                {/* Quantity */}
-                <div className="relative z-10 text-right" style={{ color: 'var(--phoenix-text-secondary)' }}>
-                  {toNumber(node.quantity).toFixed(4)}
-                </div>
-                {/* Owner (truncated) */}
-                <div className="relative z-10 text-right truncate" style={{ color: 'var(--phoenix-text-subtle)' }}>
-                  {String(node.owner).slice(0, 4)}...{String(node.owner).slice(-4)}
-                </div>
-              </div>
+      <div className="flex flex-col h-[calc(100%-80px)]">
+        {/* Asks Section (Sell Orders) */}
+        <div className="relative overflow-y-auto flex flex-col justify-end" style={{ height: 'calc(50% - 20px)' }}>
+          {sortedAsks.length > 0 ? (
+            sortedAsks.map((level) => (
+              <OrderBookRow
+                key={level.price}
+                price={level.price}
+                quantity={level.quantity}
+                total={level.total}
+                side="ask"
+              />
             ))
           ) : (
             <div className="flex items-center justify-center h-full text-xs" style={{ color: 'var(--phoenix-text-subtle)' }}>
@@ -96,48 +193,29 @@ export default function Orderbook() {
           )}
         </div>
 
-        {/* SPREAD */}
-        <div className="px-3 py-2 border-y flex-shrink-0" 
-             style={{ 
-               background: 'var(--phoenix-bg-main)',
-               borderColor: 'var(--phoenix-border-light)' 
-             }}>
+        {/* Middle Divider */}
+        <div className="px-3 py-2 flex-shrink-0"
+          style={{
+            background: 'var(--phoenix-bg-main)',
+          }}>
           <div className="flex items-center justify-between text-[10px]">
             <span style={{ color: 'var(--phoenix-text-subtle)' }}>
               Orders
             </span>
-            <div className="flex items-center gap-2">
-              <span style={{ color: '#EF4444' }}>
-                Asks: {asks?.leafCount || 0}
-              </span>
-              <span style={{ color: '#22C55E' }}>
-                Bids: {bids?.leafCount || 0}
-              </span>
-            </div>
           </div>
         </div>
 
-        {/* BIDS - Green (Buy orders) */}
-        <div className="relative flex-1 overflow-y-auto">
-          {bidNodes.length > 0 ? (
-            bidNodes.slice(0, 15).map((node, idx) => (
-              <div
-                key={`bid-${node.orderId || idx}`}
-                className="relative grid grid-cols-3 gap-2 px-3 py-1.5 text-[11px] hover:opacity-80 cursor-pointer transition-opacity"
-              >
-                {/* Price - Green */}
-                <div className="relative z-10 font-medium" style={{ color: '#22C55E' }}>
-                  {toNumber(node.price).toFixed(2)}
-                </div>
-                {/* Quantity */}
-                <div className="relative z-10 text-right" style={{ color: 'var(--phoenix-text-secondary)' }}>
-                  {toNumber(node.quantity).toFixed(4)}
-                </div>
-                {/* Owner (truncated) */}
-                <div className="relative z-10 text-right truncate" style={{ color: 'var(--phoenix-text-subtle)' }}>
-                  {String(node.owner).slice(0, 4)}...{String(node.owner).slice(-4)}
-                </div>
-              </div>
+        {/* Bids Section (Buy Orders) */}
+        <div className="relative overflow-y-auto" style={{ height: 'calc(50% - 20px)' }}>
+          {sortedBids.length > 0 ? (
+            sortedBids.map((level) => (
+              <OrderBookRow
+                key={level.price}
+                price={level.price}
+                quantity={level.quantity}
+                total={level.total}
+                side="bid"
+              />
             ))
           ) : (
             <div className="flex items-center justify-center h-full text-xs" style={{ color: 'var(--phoenix-text-subtle)' }}>
