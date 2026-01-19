@@ -31,7 +31,6 @@ function SwappingInterface() {
       setVisible(true)
       return
     }
-
     if (!price || !size) {
       alert('Please enter price and size')
       return
@@ -78,117 +77,132 @@ function SwappingInterface() {
     error.message.includes("Error Code: AccountNotInitialized");
 
   return (
-    <div className="w-96 h-full border-l flex flex-col p-6" style={{ 
+    <div className="w-96 h-full rounded-2xl flex flex-col p-6" style={{ 
       background: '#FAF8F6',
-      borderColor: '#E6E4E1' 
     }}>
-      <h2 className="text-xl font-semibold mb-6" style={{ color: '#2B1B12' }}>Place Order</h2>
-      
-      {/* Order Type Selector */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: '#6F625B' }}>Order Type</label>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setOrderType({ limit: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: isLimit ? '#FF7A2F' : '#F4F1EE',
-              color: isLimit ? 'white' : '#6F625B'
-            }}
-          >
-            Limit
-          </button>
-          <button
-            onClick={() => setOrderType({ postOnly: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: isPostOnly ? '#FF7A2F' : '#F4F1EE',
-              color: isPostOnly ? 'white' : '#6F625B'
-            }}
-          >
-            Post
-          </button>
-          <button
-            onClick={() => setOrderType({ immediateOrCancel: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: isIOC ? '#FF7A2F' : '#F4F1EE',
-              color: isIOC ? 'white' : '#6F625B'
-            }}
-          >
-            IOC
-          </button>
-        </div>
-      </div>
+      <h2 className="text-xl font-semibold mb-6" style={{ color: "#2B1B12" }}>
+    Place Order
+  </h2>
 
-      {/* Side Selector */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setSide({ bid: {} })}
-          className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
-          style={{
-            background: isBid ? '#FF7A2F' : 'rgba(255, 122, 47, 0.15)',
-            color: isBid ? 'white' : '#FF7A2F',
-            boxShadow: isBid ? '0 4px 12px rgba(255, 122, 47, 0.3)' : 'none'
-          }}
-        >
-          <TrendingUp className="w-4 h-4" />
-          Buy
-        </button>
-        <button
-          onClick={() => setSide({ ask: {} })}
-          className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
-          style={{
-            background: !isBid ? '#DC2626' : 'rgba(220, 38, 38, 0.1)',
-            color: !isBid ? 'white' : '#DC2626',
-            boxShadow: !isBid ? '0 4px 12px rgba(220, 38, 38, 0.3)' : 'none'
-          }}
-        >
-          <TrendingDown className="w-4 h-4" />
-          Sell
-        </button>
-      </div>
+  {/* Order Type Selector */}
+  <div className="mb-4">
+    <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>
+      Order Type
+    </label>
+    <div className="flex gap-2">
+      <button
+        onClick={() => setOrderType({ limit: {} })}
+        className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+        style={{
+          background: isLimit ? "#FF7A2F" : "#F4F1EE",
+          color: isLimit ? "white" : "#6F625B",
+        }}
+      >
+        Limit
+      </button>
+      <button
+        onClick={() => setOrderType({ postOnly: {} })}
+        className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+        style={{
+          background: isPostOnly ? "#FF7A2F" : "#F4F1EE",
+          color: isPostOnly ? "white" : "#6F625B",
+        }}
+      >
+        Post
+      </button>
+      <button
+        onClick={() => setOrderType({ immediateOrCancel: {} })}
+        className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+        style={{
+          background: isIOC ? "#FF7A2F" : "#F4F1EE",
+          color: isIOC ? "white" : "#6F625B",
+        }}
+      >
+        IOC
+      </button>
+    </div>
+  </div>
 
-      {/* Price Input */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: '#6F625B' }}>Price</label>
-        <div className="rounded-lg p-3" style={{ background: '#F4F1EE' }}>
-          <input
-            type="number"
-            value={String(price)}
-            onChange={(e) => setPrice(parseFloat(e.target.value))}
-            placeholder="0.00"
-            className="bg-transparent text-lg font-medium outline-none w-full"
-            style={{ color: '#2B1B12' }}
-          />
-        </div>
-      </div>
+  {/* Side Selector */}
+  <div className="flex gap-2 mb-4">
+    <button
+      onClick={() => setSide({ bid: {} })}
+      className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+      style={{
+        background: isBid ? "#FF7A2F" : "rgba(255, 122, 47, 0.15)",
+        color: isBid ? "white" : "#FF7A2F",
+        boxShadow: isBid
+          ? "0 4px 12px rgba(255, 122, 47, 0.3)"
+          : "none",
+      }}
+    >
+      <TrendingUp className="w-4 h-4" />
+      Buy
+    </button>
+    <button
+      onClick={() => setSide({ ask: {} })}
+      className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+      style={{
+        background: !isBid ? "#DC2626" : "rgba(220, 38, 38, 0.1)",
+        color: !isBid ? "white" : "#DC2626",
+        boxShadow: !isBid
+          ? "0 4px 12px rgba(220, 38, 38, 0.3)"
+          : "none",
+      }}
+    >
+      <TrendingDown className="w-4 h-4" />
+      Sell
+    </button>
+  </div>
 
-      {/* Size Input */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: '#6F625B' }}>Size</label>
-        <div className="rounded-lg p-3" style={{ background: '#F4F1EE' }}>
-          <input
-            type="number"
-            value={size}
-            onChange={(e) => setSize(parseFloat(e.target.value))}
-            placeholder="0.00"
-            className="bg-transparent text-lg font-medium outline-none w-full"
-            style={{ color: '#2B1B12' }}
-          />
-        </div>
-      </div>
+  {/* Price Input */}
+  <div className="mb-4">
+    <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>
+      Price
+    </label>
+    <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
+      <input
+        type="number"
+        value={String(price)}
+        onChange={(e) => setPrice(parseFloat(e.target.value))}
+        placeholder="0.00"
+        className="bg-transparent text-lg font-medium outline-none w-full"
+        style={{ color: "#2B1B12" }}
+      />
+    </div>
+  </div>
 
-      {/* Total */}
-      <div className="mb-6">
-        <div className="flex justify-between text-sm mb-1" style={{ color: '#6F625B' }}>
-          <span>Total</span>
-        </div>
-        <div className="rounded-lg p-3" style={{ background: '#F4F1EE' }}>
-          <div className="text-lg font-semibold" style={{ color: '#2B1B12' }}>{total}</div>
-        </div>
-      </div>
+  {/* Size Input */}
+  <div className="mb-4">
+    <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>
+      Size
+    </label>
+    <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
+      <input
+        type="number"
+        value={size}
+        onChange={(e) => setSize(parseFloat(e.target.value))}
+        placeholder="0.00"
+        className="bg-transparent text-lg font-medium outline-none w-full"
+        style={{ color: "#2B1B12" }}
+      />
+    </div>
+  </div>
 
+  {/* Total */}
+  <div className="mb-6">
+    <div
+      className="flex justify-between text-sm mb-1"
+      style={{ color: "#6F625B" }}
+    >
+      <span>Total</span>
+    </div>
+    <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
+      <div className="text-lg font-semibold" style={{ color: "#2B1B12" }}>
+        {total}
+      </div>
+    </div>
+  </div>
       {/* Place Order Button */}
       {!connected ? (
         <button
