@@ -18,9 +18,9 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use std::u32;
+    use std::{default, result, u32};
 
-    use crate::{error::ErrorCode, helpers::match_orders, states::order_schema::enums::Side};
+    use crate::{error::ErrorCode, helpers::{MatchResult, match_orders, match_post_only_orders}, states::order_schema::enums::Side};
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -99,6 +99,7 @@ pub mod orderbook {
             "order size which is obtain from user:{}",
             market.min_order_size
         );
+        msg!("price in quote lots:{:?}",price_in_quote_lots);
         market.next_order_id = market
             .next_order_id
             .checked_add(1)
@@ -124,9 +125,11 @@ pub mod orderbook {
         };
         match order_type {
             OrderType::Limit => {
-                match_orders(side, &mut created_order, asks, bids, event_queue)?;
+               let result =  match_orders(side, &mut created_order, asks, bids, event_queue)?;
             }
-            OrderType::PostOnly => {}
+            OrderType::PostOnly => {
+                match_post_only_orders(&asks, &bids, side, &created_order)?;
+            }
             OrderType::ImmediateOrCancel => {}
         }
         let slab = match side {
@@ -228,6 +231,7 @@ pub mod orderbook {
             side
         )?;
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
+        msg!("price after placing the order:{:?}",price_in_quote_lots);
         msg!("order pushed : {:?} into the open order:", pushed_order);
         Ok(())
     }
@@ -245,26 +249,15 @@ pub mod orderbook {
             .iter()
             .position(|n| n.order_id == order_id)
             .ok_or(OpenOrderError::OrderNotFound)?;
-        let order = open_order.orders.get(order_position).unwrap();
-        let order_from_event = event_queue
-            .events
-            .iter()
-            .find(|n| n.order_id == order_id)
-            .unwrap();
-        // let event = QueueEvent {
-        //     order_id,
-        //     price: order_from_event.price,
-        //     event_type: EventType::Cancel,
-        //     quantity: order_from_event.quantity,
-        //     maker: order_from_event.maker,
-        //     taker: order_from_event.taker,
-        //     timestamp: order_from_event.timestamp,
-        // };
-        // emit!(event);
-        // EventQueue::insert_event(event_queue, &event)?;
-        match order.side {
+
+        let (side,owner,client_order_id,price,quantity,order_id,order_type) = {
+           let order =  open_order.orders.get(order_position).unwrap();
+           (order.side,order.owner,order.client_order_id,order.price,order.quantity,order.order_id,order.order_type)
+        };
+       
+        match side {
             Side::Ask => {
-                let locked_base = order.quantity;
+                let locked_base = quantity;
 
                 open_order.base_locked = open_order
                     .base_locked
@@ -298,9 +291,8 @@ pub mod orderbook {
                 )?;
             }
             Side::Bid => {
-                let quote_amount = order
-                    .price
-                    .checked_mul(order.quantity)
+                let quote_amount = price
+                    .checked_mul(quantity)
                     .ok_or(ErrorCode::OverFlow)?;
 
                 open_order.quote_locked = open_order
@@ -337,15 +329,27 @@ pub mod orderbook {
         }
         let removed_node = slab.remove_order(&order_id)?;
         msg!(" order removed from the slab :{:?}", removed_node);
-        let returned_open_order = open_order.remove_order(order_id)?;
 
+        let returned_open_order = open_order.remove_order(order_id)?;
+        let event = QueueEvent {
+            event_type:EventType::Cancel,
+            order_id,
+            owner:owner,
+            counterparty:Pubkey::default(),
+            side:side,
+            price:price,
+            base_quantity:quantity,
+            client_order_id:client_order_id,
+            timestamp:Clock::get()?.unix_timestamp
+        };
+        EventQueue::insert_event(event_queue, event)?;
         msg!(
             "open order after deleting the order:{:?}",
             returned_open_order
         );
-
         Ok(())
     }
+
     // pub fn consume_events(ctx: Context<ConsumeEvents>, limit: u16) -> Result<()> {
     //     let event_queue = &mut ctx.accounts.event_queue;
     //     let open_orders = &mut ctx.accounts.open_orders;
