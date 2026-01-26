@@ -1,81 +1,78 @@
-// services/place-order.ts
-import { useDexProgram } from "@/hooks/useDexProgram";
-import { PlaceOrderInputs } from "@/types/slab";
-import { useMutation } from "@tanstack/react-query";
-import {
-  useGetMarketAccount,
-  useGetOpenOrderPda,
-} from "../services/blockchain";
-import { MARKET_PUBKEY, MAX_BASE_SIZE } from "@/constants/market";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { BN } from "@coral-xyz/anchor";
-import { useCreateTokenAccounts } from "@/hooks/useCreateTokenAccounts";
+import { MARKET_PUBKEY, MAX_BASE_SIZE } from "@/constants/market"
+import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
+import { useDexProgram } from "@/hooks/useDexProgram"
+import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
+import { PlaceOrderInputs } from "@/types/slab"
+import { BN } from "@coral-xyz/anchor"
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token"
+import { useWallet } from "@solana/wallet-adapter-react"
+import { useMutation } from "@tanstack/react-query"
 
-export const placeOrder = () => {
-  const { publicKey } = useWallet();
-  const { program } = useDexProgram();
-  const openOrderPda = useGetOpenOrderPda(
-    MARKET_PUBKEY,
-    publicKey ?? undefined
-  );
-  const marketInfo = useGetMarketAccount(MARKET_PUBKEY);
-  const createTokenAccount = useCreateTokenAccounts()
-  return useMutation<any, Error, PlaceOrderInputs>({
-    mutationKey: ["placeOrder"],
-    mutationFn: async ({
-      clientOrderId,
-      maxBaseSize,
-      price,
-      orderType,
-      side,
-    }: PlaceOrderInputs) => {
+export const PlaceOrder = () => {
+  const { program } = useDexProgram()
+  const {publicKey} = useWallet()
+  const market = useGetMarketAccount()
+  const createTokenAccounts  = useCreateUserTokenAccounts()
+  return useMutation({
+    mutationKey: ["place-order"],
+    mutationFn: async (
+      {
+        clientOrderId,
+        maxBaseSize,
+        price,
+        orderType,
+        side,
+      }: PlaceOrderInputs
+    ) => {
       try {
-        if (!marketInfo.data) throw new Error("Market info not found!");
-        if (!publicKey) throw new Error("Connect your wallet first!");
-        if (!openOrderPda) throw new Error("Could not derive open order PDA!");
-        if (!program) throw new Error("Program is not initialised!");
-
-
-        const baseLotSize = marketInfo.data.baseLotSize;
-        const quoteLotSize = marketInfo.data.quoteLotSize;
-
-        const convertedMaxBaseSize = MAX_BASE_SIZE * maxBaseSize
-        const priceQuoteLots = Math.floor((price * baseLotSize) / quoteLotSize);
-        const { signature, baseATA, quoteATA } = await createTokenAccount.mutateAsync({ baseMint: marketInfo.data.baseMint, quoteMint: marketInfo.data.quoteMint })
-        console.log("signature:", signature)
-        if (!baseATA || !quoteATA) {
-          throw new Error("Base ATA or Quote ATA not found!")
+        if(!market.data){
+          throw new Error("Market data not found!")
         }
-        console.log("base ata:",baseATA.toString());
-        console.log("quote ata:",quoteATA.toString());
-        const result = await program.methods
+        if(!publicKey){
+          throw new Error("Please connect you wallet!")
+        }
+        // getting open order pda
+        const openOrderPda = useGetOpenOrderPda(MARKET_PUBKEY,publicKey)
+        // creating user's base associated token account and quote associated token account
+        const {baseATA,quoteATA} = await createTokenAccounts.mutateAsync({
+          baseMint:market.data?.baseMint,
+          quoteMint:market?.data?.quoteMint
+        });
+
+        if(!openOrderPda){
+          throw new Error("Open order not initialised!")
+        }
+        const baseLotSize = market.data?.baseLotSize;
+        const quoteLotSize = market.data?.quoteLotSize;
+        const convertedBaseLots = MAX_BASE_SIZE * maxBaseSize;
+        const convertedQuoteLots = Math.floor((price * baseLotSize) / quoteLotSize);
+
+        const placeOrderTx = await program?.methods
           .placeOrder(
-            new BN(convertedMaxBaseSize),
+            new BN(convertedBaseLots),
             new BN(clientOrderId),
-            new BN(priceQuoteLots),
+            new BN(convertedQuoteLots),
             orderType,
             side
           )
           .accounts({
-            owner: publicKey,
-            asks: marketInfo.data.asks,
-            bids: marketInfo.data.bids,
-            quoteVault: marketInfo.data.quoteVault,
-            baseVault: marketInfo.data.baseVault,
-            eventQueue: marketInfo.data.eventQueue,
+            market: MARKET_PUBKEY,
+            asks: market.data?.asks,
+            bids: market.data?.bids,
+            quoteVault: market?.data?.quoteVault,
+            baseVault: market?.data?.baseVault,
+            eventQueue: market.data?.eventQueue,
             userBaseVault: baseATA, // Use the ensured account
             userQuoteVault: quoteATA, // Use the ensured account
-            market: MARKET_PUBKEY,
             openOrder: openOrderPda,
             tokenProgram: TOKEN_PROGRAM_ID,
           })
-          .rpc();
+          .rpc()
+          return  placeOrderTx;
       } catch (error) {
-        console.log("error:", error);
+        console.log("error:",error)
         throw error;
       }
-      // STEP 1: Ensure token accounts exist
     }
   })
 }
