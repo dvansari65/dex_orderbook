@@ -2,7 +2,7 @@ use std::u32;
 
 use anchor_lang::prelude::*;
 
-use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError,ErrorCode};
 use crate::events::*;
 use crate::state::{EventQueue, EventType, Market, OrderStatus, QueueEvent};
 
@@ -245,118 +245,119 @@ pub fn match_orders(
     bids: &mut Slab,
     event_queue: &mut EventQueue,
 ) -> Result<MatchResult> {
-    let (opposite_slab, _same_side_slab) = match side {
-        Side::Ask => (bids, asks),
-        Side::Bid => (asks, bids),
+    // 1. Identify the correct side to match against
+    let opposite_slab = match side {
+        Side::Ask => bids, // Sellers match with existing Bids
+        Side::Bid => asks, // Buyers match with existing Asks
     };
 
     let initial_quantity = order.quantity;
     let mut total_quote_qty = 0u64;
 
+    // 2. Matching Loop
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
-        let best_opposite = opposite_slab.nodes.first_mut().unwrap();
+        // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
+        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled) = {
+            let best_opposite = opposite_slab.nodes.first_mut().unwrap();
 
-        msg!("This is the best opposite:{:?}", best_opposite);
+            // 3. Price Cross Check
+            // A match only happens if the Taker's price "crosses" the Maker's price.
+            let can_match = match side {
+                Side::Ask => order.price <= best_opposite.price, // Selling for 10 into a Bid for 11
+                Side::Bid => order.price >= best_opposite.price, // Buying for 10 into an Ask for 9
+            };
 
-        if (side == Side::Ask && order.price > best_opposite.price)
-            || (side == Side::Bid && order.price < best_opposite.price)
-        {
-            msg!("PRICE MISMATCH - No match possible. Breaking.");
-            break;
-        }
+            if !can_match {
+                break; 
+            }
 
-        let fill_qty = best_opposite.quantity.min(order.quantity);
+            let fill_qty = best_opposite.quantity.min(order.quantity);
+            let execution_price = best_opposite.price; // Trade executes at the price already on the book
+
+            // Update quantities in place
+            best_opposite.quantity = best_opposite.quantity
+                .checked_sub(fill_qty)
+                .ok_or(OrderError::UnderFlow)?;
+            
+            order.quantity = order.quantity
+                .checked_sub(fill_qty)
+                .ok_or(OrderError::UnderFlow)?;
+
+            (
+                fill_qty, 
+                execution_price, 
+                best_opposite.order_id.clone(), 
+                best_opposite.owner, 
+                best_opposite.quantity == 0
+            )
+        };
+
+        // 4. Calculate Quote Volume
         let quote_qty = fill_qty
-            .checked_mul(best_opposite.price)
+            .checked_mul(execution_price)
             .ok_or(OrderError::OverFlow)?;
 
         total_quote_qty = total_quote_qty
             .checked_add(quote_qty)
             .ok_or(OrderError::OverFlow)?;
 
-        order.quantity = order
-            .quantity
-            .checked_sub(fill_qty)
-            .ok_or(OrderError::UnderFlow)?;
-
-        best_opposite.quantity = best_opposite
-            .quantity
-            .checked_sub(fill_qty)
-            .ok_or(OrderError::UnderFlow)?;
-
-        let best_opposite_id = best_opposite.order_id;
-        let best_opposite_owner = best_opposite.owner;
-        let is_filled = order.quantity == 0;
-
-        msg!(
-            "Match found - fill_qty: {}, price: {}",
-            fill_qty,
-            order.price
-        );
-
-        if is_filled {
-            best_opposite.order_status = OrderStatus::Fill;
-            msg!("Order fully filled - removing from book");
-
-            opposite_slab.remove_order(&best_opposite_id)?;
-
+        // 5. Emit Event & Update Status
+        // We emit ONE event per match. Your indexer uses this to update both sides.
+        let event_type = if order.quantity == 0 { EventType::Fill } else { EventType::PartialFill };
+        
+        if event_type == EventType::Fill {
             emit_order_fill(
                 order.owner,
                 order.client_order_id,
-                best_opposite_owner,
-                best_opposite_id,
+                maker_owner,
+                maker_id.clone(),
                 side,
-                order.price,
+                execution_price,
                 fill_qty,
                 order.quantity,
             )?;
-            let event = QueueEvent {
-                event_type: EventType::Fill,
-                order_id: order.order_id,
-                owner: order.owner,
-                counterparty: best_opposite_owner,
-                side: side,
-                price: order.price,
-                base_quantity: fill_qty,
-                client_order_id: order.client_order_id,
-                timestamp: Clock::get()?.unix_timestamp,
-            };
-            event_queue.insert_event(event)?;
         } else {
-            best_opposite.order_status = OrderStatus::PartialFill;
-            msg!("Order partially filled");
-            let _emitted_event = emit_partial_fill_order(
+            emit_partial_fill_order(
                 order.owner,
                 order.client_order_id,
-                best_opposite_owner,
-                best_opposite_id,
+                maker_owner,
+                maker_id.clone(),
                 side,
-                order.price,
+                execution_price,
                 fill_qty,
                 order.quantity,
             )?;
-            msg!("Partial order fill event emitted");
-            let event = QueueEvent {
-                event_type: EventType::PartialFill,
-                order_id: order.order_id,
-                owner: order.owner,
-                counterparty: best_opposite_owner,
-                side: side,
-                price: order.price,
-                base_quantity: fill_qty,
-                client_order_id: order.client_order_id,
-                timestamp: Clock::get()?.unix_timestamp,
-            };
-            event_queue.insert_event(event)?;
         }
 
-        if order.quantity == 0 {
-            order.order_status = OrderStatus::Fill;
-            break;
+        let event = QueueEvent {
+            event_type,
+            order_id: order.order_id.clone(),
+            owner: order.owner,
+            counterparty: maker_owner,
+            side: side,
+            price: execution_price,
+            base_quantity: fill_qty,
+            client_order_id: order.client_order_id,
+            timestamp: Clock::get()?.unix_timestamp,
+        };
+        event_queue.insert_event(event)?;
+
+        // 6. Cleanup: Remove fully filled Maker from the book
+        if maker_filled {
+            opposite_slab.remove_order(&maker_id)?;
+            msg!("Opposite Order Fully filled and removed from slab");
         }
     }
 
+    // 7. Finalize Taker Status
     let filled_quantity = initial_quantity - order.quantity;
+    order.order_status = if order.quantity == 0 {
+        OrderStatus::Fill
+    } else if filled_quantity > 0 {
+        OrderStatus::PartialFill
+    } else {
+        OrderStatus::Open
+    };
 
     Ok(MatchResult {
         filled_quantity,
@@ -367,22 +368,30 @@ pub fn match_orders(
 }
 
 pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<()> {
-    let best_opposite_bid = bids.nodes.first().unwrap();
-    let best_opposite_ask = asks.nodes.first().unwrap();
-    msg!(
-        "best ask:{:?} & best bid:{:?}",
-        best_opposite_ask,
-        best_opposite_bid
-    );
-    if side == Side::Ask && order.price <= best_opposite_bid.price {
-        msg!("Best bid is greater than selling price, so order can match, returning...");
-        return Ok(());
-    }
-    if side == Side::Bid && order.price >= best_opposite_ask.price {
-        msg!("Bidding price is greater than best ask price, so order can match,returning...");
-        return Ok(());
-    }
+   
+    match side {
+        Side::Ask => {
+            if bids.nodes.is_empty() {
+                return Ok(())
+            }
+            let best_bid = bids.nodes.first().ok_or(OrderError::InvalidNode)?;
+            if order.price <= best_bid.price {
+                msg!("Best bid is greater than selling price, so order can match, returning...");
+                return Err(OrderError::WouldMatchImmediately.into());
+            }
 
+        },
+        Side::Bid => if asks.nodes.is_empty(){
+            if bids.nodes.is_empty(){
+                return Ok(())
+            }
+            let best_ask = asks.nodes.first().ok_or(OrderError::InvalidNode)?;
+            if order.price >= best_ask.price {
+                msg!("Bidding price is greater than best ask price, so order can match,returning...");
+                return Err(OrderError::WouldMatchImmediately)?;
+            }
+        }
+    }
     Ok(())
 }
 
