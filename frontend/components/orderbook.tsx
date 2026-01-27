@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useSocket } from "@/providers/SocketProvider";
 import OrderBookRow from "./market/initial-snapshot";
-import { OrderNode } from "@/types/slab";
 
 /* ============================== */
 /* ========= Types ============== */
@@ -21,14 +20,6 @@ interface OrderBookState {
   bids: Map<number, PriceLevel>;
 }
 
-// Unified Event for the Indexer
-interface OrderUpdate {
-  type: "PLACE" | "FILL" | "CANCEL";
-  side: Side;
-  price: number;
-  quantity: number; // Delta or New total depending on type
-}
-
 const DISPLAY_LIMIT = 20;
 
 export default function Orderbook() {
@@ -38,7 +29,7 @@ export default function Orderbook() {
     bids: new Map(),
   });
 
-  // Use a Ref for the latest state to avoid closure staleness in socket listeners
+  // Use a Ref for the latest state to avoid closure staleness
   const stateRef = useRef(orderbook);
   stateRef.current = orderbook;
 
@@ -46,14 +37,14 @@ export default function Orderbook() {
 
   const sortedAsks = useMemo(() => {
     return [...orderbook.asks.values()]
-      .sort((a, b) => a.price - b.price) // Asks: Low to High
+      .sort((a, b) => a.price - b.price)
       .slice(0, DISPLAY_LIMIT)
-      .reverse(); // Display high prices at top
+      .reverse();
   }, [orderbook.asks]);
 
   const sortedBids = useMemo(() => {
     return [...orderbook.bids.values()]
-      .sort((a, b) => b.price - a.price) // Bids: High to Low
+      .sort((a, b) => b.price - a.price)
       .slice(0, DISPLAY_LIMIT);
   }, [orderbook.bids]);
 
@@ -63,33 +54,51 @@ export default function Orderbook() {
     return bestAsk && bestBid ? (bestAsk - bestBid).toFixed(4) : "—";
   }, [orderbook.asks, orderbook.bids]);
 
-  /* ---------- Unified State Updater ---------- */
+  /* ---------- Update Handlers ---------- */
 
-  const updateOrderbook = useCallback((update: OrderUpdate) => {
-    const { side, price, quantity, type } = update;
-    if (price <= 0) return;
-
+  const handlePlace = useCallback((p: number, q: number, s: Side) => {
     setOrderbook((prev) => {
-      const newMap = new Map(side === "ask" ? prev.asks : prev.bids);
-      const existing = newMap.get(price);
-
-      if (type === "PLACE") {
-        const newQty = (existing?.quantity || 0) + quantity;
-        newMap.set(price, { price, quantity: newQty, total: price * newQty });
-      } 
-      else if (type === "FILL" || type === "CANCEL") {
-        if (!existing) return prev;
-        const newQty = existing.quantity - quantity;
-        if (newQty <= 0) {
-          newMap.delete(price);
-        } else {
-          newMap.set(price, { price, quantity: newQty, total: price * newQty });
-        }
-      }
-
+      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
+      const existing = newMap.get(p);
+      const newQty = (existing?.quantity || 0) + q;
+      newMap.set(p, { price: p, quantity: newQty, total: p * newQty });
+      
       return {
         ...prev,
-        [side === "ask" ? "asks" : "bids"]: newMap,
+        [s === "ask" ? "asks" : "bids"]: newMap,
+      };
+    });
+  }, []);
+
+  const handleFill = useCallback((p: number, q: number, s: Side) => {
+    setOrderbook((prev) => {
+      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
+      const existing = newMap.get(p);
+      
+      if (!existing) return prev;
+      
+      const newQty = existing.quantity - q;
+      if (newQty <= 0) {
+        newMap.delete(p);
+      } else {
+        newMap.set(p, { price: p, quantity: newQty, total: p * newQty });
+      }
+      
+      return {
+        ...prev,
+        [s === "ask" ? "asks" : "bids"]: newMap,
+      };
+    });
+  }, []);
+
+  const handleCancel = useCallback((p: number, s: Side) => {
+    setOrderbook((prev) => {
+      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
+      newMap.delete(p);
+      
+      return {
+        ...prev,
+        [s === "ask" ? "asks" : "bids"]: newMap,
       };
     });
   }, []);
@@ -99,41 +108,63 @@ export default function Orderbook() {
   useEffect(() => {
     if (!socket) return;
 
-    // Handle Snapshot
-    socket.on("initial-snapshot", (payload) => {
+    // Handle initial snapshot
+    const handleSnapshot = (payload: any) => {
       const asks = new Map();
       const bids = new Map();
       
-      payload.asks.forEach((n: any) => {
+      payload.orderbook.asks.forEach((n: any) => {
         const p = Number(n.price);
         const q = Number(n.quantity);
         asks.set(p, { price: p, quantity: q, total: p * q });
       });
 
-      payload.bids.forEach((n: any) => {
+      payload.orderbook.bids.forEach((n: any) => {
         const p = Number(n.price);
         const q = Number(n.quantity);
         bids.set(p, { price: p, quantity: q, total: p * q });
       });
 
       setOrderbook({ asks, bids });
-    });
+    };
 
-    // Handle Live Events
-    socket.on("order-place-event", (data) => 
-      updateOrderbook({ ...data, type: "PLACE", side: data.side.toLowerCase() })
-    );
-    
-    socket.on("order-fill-event", (data) => 
-      updateOrderbook({ ...data, type: "FILL", side: data.side.toLowerCase() })
-    );
+    // Handle lightweight events (shortened keys: p, q, s, ts)
+    const handlePlaced = (data: any) => {
+      const side = data.s as Side;
+      handlePlace(data.p, data.q, side);
+    };
+
+    const handleFilled = (data: any) => {
+      const side = data.s as Side;
+      handleFill(data.p, data.q, side);
+    };
+
+    const handlePartial = (data: any) => {
+      const side = data.s as Side;
+      handleFill(data.p, data.q, side);
+    };
+
+    const handleCancelled = (data: any) => {
+      const side = data.s as Side;
+      handleCancel(data.p, side);
+    };
+
+    // Register listeners
+    socket.on("snapshot", handleSnapshot);
+    socket.on("order:placed", handlePlaced);
+    socket.on("order:filled", handleFilled);
+    socket.on("order:partial", handlePartial);
+    socket.on("order:cancelled", handleCancelled);
 
     return () => {
-      socket.off("initial-snapshot");
-      socket.off("order-place-event");
-      socket.off("order-fill-event");
+      socket.off("snapshot", handleSnapshot);
+      socket.off("order:placed", handlePlaced);
+      socket.off("order:filled", handleFilled);
+      socket.off("order:partial", handlePartial);
+      socket.off("order:cancelled", handleCancelled);
     };
-  }, [socket, updateOrderbook]);
+  }, [socket, handlePlace, handleFill, handleCancel]);
+
   /* ============================== */
   /* ========= Render ============= */
   /* ============================== */
