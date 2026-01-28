@@ -30,6 +30,21 @@
   /* ===== BLUR ===== */
   --phoenix-blur-md: blur(16px);
   --phoenix-blur-lg: blur(24px);
+
+ 
+  --gray-900: #111827;
+
+  /* Secondary text (paragraphs, labels) */
+  --gray-700: #374151;
+
+  /* Muted text / icons */
+  --gray-500: #6B7280;
+
+  /* Borders / dividers */
+  --gray-300: #D1D5DB;
+
+  /* Backgrounds / cards */
+  --gray-100: #F3F4F6;
 }
 
 
@@ -37,4 +52,21 @@ body {
   background: var(--bg-background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+.trading-bg {
+  background: var(--phoenix-bg-glass-strong);
+  color: var(--phoenix-bg-glass-strong);
+}
+
+.button-bg {
+  background:var( --phoenix-accent);
+  color:var( --phoenix-accent) ;
+}
+.hover-bg{
+  background:var( --phoenix-accent-hover);
+  color: var( --phoenix-accent-hover);
+}
+
+.txt-color {
+  color:var(--gray-500)
 }

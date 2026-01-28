@@ -1,13 +1,14 @@
 "use client"
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Wallet, TrendingUp, TrendingDown } from 'lucide-react'
-import { placeOrder } from '@/api/place-order';
+
 import {  OrderType, PlaceOrderInputs, Side } from '@/types/slab';
 import { toast } from 'sonner';
 import { orderIdGenerator } from '@/lib/IdGenerator';
 import { OpenOrderModal } from './open-order/Initialise-open-order';
+import { PlaceOrder } from '@/api/place-order';
 
 function SwappingInterface() {
   const { connected, publicKey, signTransaction } = useWallet()
@@ -22,7 +23,7 @@ function SwappingInterface() {
    // Calculate total
   const total = price && size ? ((price) * (size)).toFixed(6) : '0.00'
 
-  const { mutate, isPending, error } = placeOrder()
+  const { mutate, isPending, error } = PlaceOrder()
 
   const clientOrderId = orderIdGenerator.generate();
   
@@ -50,7 +51,10 @@ function SwappingInterface() {
       },
       onError: (error) => {
         console.log("error:", error.message)
-        
+        if(error.message.includes("Open order not initialised!")){
+          setShowOpenOrderModal(true)
+          toast.error("Please initialize your open order account first")
+        }
         // ✅ Check if it's an open order initialization error
         if (
           error.message.includes("account: open_order") && 

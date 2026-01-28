@@ -140,7 +140,7 @@ pub fn emit_order_fill(
     price: u64,
     base_lots_filled: u64,
     base_lots_remaining: u64,
-) {
+) ->Result<OrderFillEvent>{
     emit!(OrderFillEvent {
         maker,
         maker_order_id,
@@ -152,6 +152,17 @@ pub fn emit_order_fill(
         base_lots_remaining,
         timestamp: Clock::get().unwrap().unix_timestamp,
     });
+    Ok(OrderFillEvent {
+        maker,
+        maker_order_id,
+        taker,
+        taker_order_id,
+        side,
+        price,
+        base_lots_filled,
+        base_lots_remaining,
+        timestamp: Clock::get().unwrap().unix_timestamp,
+    })
 }
 pub fn emit_partial_fill_order (
     maker: Pubkey,

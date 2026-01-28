@@ -1,5 +1,5 @@
 import Orderbook from "@/components/orderbook";
-import RecentTrades from "@/components/recent-orders";
+
 import SwappingInterface from "@/components/swapping-interface";
 
 function Trading() {
@@ -43,9 +43,9 @@ function Trading() {
           <Orderbook />
         </div>
 
-        <div className="h-64 lg:h-80 p-2">
-          <RecentTrades />
-        </div>
+       <div className="h-[250px]">
+
+       </div>
       </div>
 
       {/* ================= RIGHT: Swap Interface ================= */}

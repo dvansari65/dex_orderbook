@@ -15,7 +15,11 @@ pub enum OrderError {
     #[msg("Quantity underflow!")]
     UnderFlow,
     #[msg("Quantity Overflow!")]
-    OverFlow
+    OverFlow,
+    #[msg("Failed to get first order!")]
+    InvalidNode,
+    #[msg("Order can be match , So rejecting the order!")]
+    WouldMatchImmediately
 }
 
 #[error_code]
@@ -73,6 +77,10 @@ pub enum SlabError {
     InvalidPrice,
     #[msg("Duplicate order id!")]
     DuplicateOrderId,
+    #[msg("Invalid inserting index!")]
+    InvalidIndex,
+    #[msg("Quantity underflow!")]
+    UnderFlow,
 }
 
 #[error_code]
@@ -84,7 +92,9 @@ pub enum ErrorCode {
     #[msg("Under flow error!")]
     UnderFlow,
     #[msg("Over flow error!")]
-    OverFlow
+    OverFlow,
+    #[msg("Invalid price!")]
+    InvalidPrice
 }
 
 #[error_code]

@@ -96,6 +96,7 @@ pub struct Order {
 pub enum OrderStatus {
     Fill = 1,
     PartialFill = 2,
+    Open = 3
 }
 
 
@@ -136,5 +137,3 @@ pub struct EventQueue {
     #[max_len(32)]
     pub events: Vec<QueueEvent>,
 }
-
-

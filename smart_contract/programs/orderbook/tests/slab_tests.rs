@@ -19,7 +19,7 @@ fn test_insert_order() {
     let market = dummy_pubkey();
     let order_status= OrderStatus::PartialFill;
     // Insert first order
-    slab.insert_order(1, 100, owner, 50,order_status,3450,&market,Side::Ask).unwrap();
+    slab.insert_order(1, 100, owner, 100,order_status,3450,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 1);
     assert_eq!(slab.nodes.len(), 1);
     assert_eq!(slab.nodes[0].price, 50);
@@ -28,17 +28,25 @@ fn test_insert_order() {
     msg!(" free list len from test {:?}", slab.free_list_len);
 
     // Insert second order with lower price (should go before)
-    slab.insert_order(2, 200, owner, 30,order_status,4003,&market,Side::Bid).unwrap();
+    slab.insert_order(2, 200, owner, 101,order_status,4003,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 2);
     assert_eq!(slab.nodes[1].price, 30);
     assert_eq!(slab.nodes[0].price, 50);
     assert_eq!(slab.free_list_len, 1022);
     msg!(" free list len from test {:?}", slab.free_list_len);
     // Insert third order with higher price (should go last)
-    slab.insert_order(3, 150, owner, 60,order_status,2026,&market,Side::Ask).unwrap();
+    slab.insert_order(3, 150, owner, 101,order_status,2027,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 3);
     assert_eq!(slab.nodes[2].price, 60);
     assert_eq!(slab.free_list_len, 1021);
+
+    slab.insert_order(4, 110, owner, 103,order_status,2027,&market,Side::Ask).unwrap();
+    assert_eq!(slab.leaf_count, 3);
+    assert_eq!(slab.nodes[2].price, 60);
+    assert_eq!(slab.free_list_len, 1021);
+    assert_eq!(slab.nodes[3].price , 103);
+    assert_eq!(slab.nodes[2].price , 101);
+    assert_eq!(slab.nodes[2].order_id , 3);
 
     slab.update_links(1);
     assert_eq!(slab.nodes[1].prev, 0);

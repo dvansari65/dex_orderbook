@@ -16,31 +16,23 @@ export class Conversion {
         }
     }
     quantityToHuman(quantity: number) {
-        if (!this.marketState) {
-            return;
-        }
-        return (
-            (quantity * this.marketState.baseLotSize) / 1000000
-        )
+        if (!this.marketState) return 0;
+        // Phoenix usually uses 1e6 for USDC and 1e9 for SOL, 
+        // Ensure you use the actual decimals from the market config
+        return (quantity * this.baseLotSize) / Math.pow(10, this.decimals);
     }
+
     convertNode(node: any) {
-        return {
-            price: node.price instanceof BN ? node.price.toNumber() : Number(node.price),
-            quantity: node.quantity instanceof BN ? this.quantityToHuman(node?.quantity) : this.quantityToHuman(node?.quantity),
-            owner: Array.isArray(node.owner)
-                ? node.owner[0].toString()
-                : node.owner.toString(),
-            clientOrderId: node.clientOrderId instanceof BN
-                ? node.clientOrderId.toString()
-                : String(node.clientOrderId),
-            timestamp: node.timestamp instanceof BN
-                ? node.timestamp.toNumber()
-                : Number(node.timestamp),
-            orderId: node.orderId instanceof BN
-                ? node.orderId.toString()
-                : String(node.orderId),
-            next: node.next,
-            prev: node.prev,
+        // Handle side carefully - Phoenix sides are often enums (0, 1)
+        let side = node.side;
+        if (typeof side === 'object') {
+            side = Object.keys(side)[0]; // handles { ask: {} } format
         }
+
+        return {
+          price: node.price instanceof BN ? node.price.toNumber() : Number(node.price),
+          quantity: this.quantityToHuman(node.quantity instanceof BN ? node.quantity.toNumber() : node.quantity),
+          side: side?.toLowerCase(), // "ask" or "bid"
+        };
     }
 }

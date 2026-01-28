@@ -96,3 +96,4 @@ export interface TimeInForceEvent {
   lastValidSlot: BN;
   lastValidUnixTimestampInSeconds: BN;
 }
+

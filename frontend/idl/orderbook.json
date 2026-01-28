@@ -718,6 +718,31 @@
       "code": 6000,
       "name": "OrderNotFound",
       "msg": "Order not found in the Slab!"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidQty",
+      "msg": "Invalid quantity!"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPrice",
+      "msg": "Invalid price!"
+    },
+    {
+      "code": 6003,
+      "name": "DuplicateOrderId",
+      "msg": "Duplicate order id!"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidIndex",
+      "msg": "Invalid inserting index!"
+    },
+    {
+      "code": 6005,
+      "name": "UnderFlow",
+      "msg": "Quantity underflow!"
     }
   ],
   "types": [

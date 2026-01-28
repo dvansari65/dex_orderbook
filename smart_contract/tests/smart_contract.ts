@@ -53,6 +53,7 @@ describe("orderbook", () => {
       6
     );
     console.log("quote mint:", quoteMint.toString())
+    console.log("base mint:", baseMint.toString())
     const [bidsPda] = web3.PublicKey.findProgramAddressSync(
       [Buffer.from("bids"), marketKeypair.publicKey.toBuffer()],
       program.programId

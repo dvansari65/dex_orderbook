@@ -14,7 +14,7 @@ export interface OrderPlacedEvent {
   clientOrderId: BN;
   side: Side;
   price: BN;
-  baseLots: BN;
+  quantity: BN;
   timestamp: BN;
 }
 

@@ -10,6 +10,7 @@ export default function Home() {
       console.log("market state:", data)
     })
   }, [socket])
+  
   return (
     <div className="overflow-y-auto">
       <Navbar />

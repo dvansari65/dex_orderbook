@@ -518,7 +518,7 @@
           "type": "u64"
         },
         {
-          "name": "price",
+          "name": "price_in_quote_lots",
           "type": "u64"
         },
         {

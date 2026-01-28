@@ -13,7 +13,7 @@ function Navbar() {
       toast.error("Trade ID not found!")
       return;
     }
-    router.push(`/Trading/${tradeId as string}`)
+    router.push(`/Trading`)
   }
   return (
     <nav

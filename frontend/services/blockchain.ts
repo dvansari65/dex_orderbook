@@ -1,8 +1,13 @@
 import { useDexProgram } from "@/hooks/useDexProgram"
 import { PROGRAM_ID } from "@/lib/programId"
-import { Market } from "@/types/slab"
+// import { Market } from "@/types/slab"
 import { PublicKey } from "@solana/web3.js"
+import { useQuery } from "@tanstack/react-query"
+import {Orderbook} from "../types/orderbook"
+import { IdlAccounts } from "@coral-xyz/anchor"
+import { MARKET_PUBKEY } from "@/constants/market"
 
+type Market = IdlAccounts<Orderbook>["market"]
 
 export const useGetAsksPda = (market: PublicKey) => {
     const [pda] = PublicKey.findProgramAddressSync(
@@ -44,19 +49,33 @@ export const useGetOpenOrderPda = (
     return pda
   }
   
-export const useGetMarketAcount = (marketPubKey:string):Market=>{
-    const {program} = useDexProgram()
-    try {
-        if(!marketPubKey){
-            throw new Error("Market pubkey is not provided!")
+  export const useGetMarketAccount = () => {
+    const { program } = useDexProgram();
+  
+    return useQuery<Market>({
+      queryKey: ["market"],
+      queryFn: async () => {
+        try {
+          if (!MARKET_PUBKEY) {
+            throw new Error("Market pubkey is not provided!");
+          }
+          console.log("market pub:",MARKET_PUBKEY.toString())
+          if (!program) {
+            throw new Error("Program is not initialized!");
+          }
+    
+          console.log("Fetching market...");
+          const market = await program.account.market.fetch(new PublicKey(MARKET_PUBKEY));
+          console.log("Market fetched:", market);
+          return market;
+        } catch (error) {
+          console.log("error:",error)
+          throw error;
         }
-        const market = (program.account as any).market.fetch(marketPubKey)
-        console.log("market account:",market)
-        return market
-    } catch (error) {
-        throw error;
-    }
-}
+      },
+      enabled: !!MARKET_PUBKEY && !!program,
+    });
+  };
 
 export const useGetVaultSignerPda = (market: PublicKey) => {
     const [pda] = PublicKey.findProgramAddressSync(

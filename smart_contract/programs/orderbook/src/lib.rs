@@ -125,12 +125,15 @@ pub mod orderbook {
         };
         match order_type {
             OrderType::Limit => {
-               let result =  match_orders(side, &mut created_order, asks, bids, event_queue)?;
+                match_orders(side, &mut created_order, asks, bids, event_queue)?;
+               
             }
             OrderType::PostOnly => {
                 match_post_only_orders(&asks, &bids, side, &created_order)?;
             }
-            OrderType::ImmediateOrCancel => {}
+            OrderType::ImmediateOrCancel => {
+                
+            }
         }
         let slab = match side {
             Side::Ask => &mut ctx.accounts.asks,
