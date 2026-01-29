@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, memo } from "react";
 import { useSocket } from "@/providers/SocketProvider";
 import OrderBookRow from "./market/initial-snapshot";
 
@@ -22,217 +22,120 @@ interface OrderBookState {
 
 const DISPLAY_LIMIT = 20;
 
+const MemoizedRow = memo(OrderBookRow);
+
 export default function Orderbook() {
   const socket = useSocket();
-  const [orderbook, setOrderbook] = useState<OrderBookState>({
-    asks: new Map(),
-    bids: new Map(),
-  });
+  const [displayData, setDisplayData] = useState<OrderBookState>({ asks: new Map(), bids: new Map() });
+  
+  // Use Refs for data to prevent re-renders on every socket message
+  const bookRef = useRef<OrderBookState>({ asks: new Map(), bids: new Map() });
+  const batchTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Use a Ref for the latest state to avoid closure staleness
-  const stateRef = useRef(orderbook);
-  stateRef.current = orderbook;
-
-  /* ---------- Memoized Calculations ---------- */
-
-  const sortedAsks = useMemo(() => {
-    return [...orderbook.asks.values()]
-      .sort((a, b) => a.price - b.price)
-      .slice(0, DISPLAY_LIMIT)
-      .reverse();
-  }, [orderbook.asks]);
-
-  const sortedBids = useMemo(() => {
-    return [...orderbook.bids.values()]
-      .sort((a, b) => b.price - a.price)
-      .slice(0, DISPLAY_LIMIT);
-  }, [orderbook.bids]);
-
-  const spread = useMemo(() => {
-    const bestAsk = [...orderbook.asks.keys()].sort((a, b) => a - b)[0];
-    const bestBid = [...orderbook.bids.keys()].sort((a, b) => b - a)[0];
-    return bestAsk && bestBid ? (bestAsk - bestBid).toFixed(4) : "—";
-  }, [orderbook.asks, orderbook.bids]);
-
-  /* ---------- Update Handlers ---------- */
-
-  const handlePlace = useCallback((p: number, q: number, s: Side) => {
-    setOrderbook((prev) => {
-      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
-      const existing = newMap.get(p);
-      const newQty = (existing?.quantity || 0) + q;
-      newMap.set(p, { price: p, quantity: newQty, total: p * newQty });
-      
-      return {
-        ...prev,
-        [s === "ask" ? "asks" : "bids"]: newMap,
-      };
-    });
-  }, []);
-
-  const handleFill = useCallback((p: number, q: number, s: Side) => {
-    setOrderbook((prev) => {
-      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
-      const existing = newMap.get(p);
-      
-      if (!existing) return prev;
-      
-      const newQty = existing.quantity - q;
-      if (newQty <= 0) {
-        newMap.delete(p);
-      } else {
-        newMap.set(p, { price: p, quantity: newQty, total: p * newQty });
-      }
-      
-      return {
-        ...prev,
-        [s === "ask" ? "asks" : "bids"]: newMap,
-      };
-    });
-  }, []);
-
-  const handleCancel = useCallback((p: number, s: Side) => {
-    setOrderbook((prev) => {
-      const newMap = new Map(s === "ask" ? prev.asks : prev.bids);
-      newMap.delete(p);
-      
-      return {
-        ...prev,
-        [s === "ask" ? "asks" : "bids"]: newMap,
-      };
-    });
-  }, []);
-
-  /* ---------- Socket Handlers ---------- */
+  // Throttled Update: Batches multiple socket events into one render
+  const triggerUpdate = () => {
+    if (batchTimer.current) return;
+    batchTimer.current = setTimeout(() => {
+      // Create new Map references only when rendering to trigger React's diffing
+      setDisplayData({
+        asks: new Map(bookRef.current.asks),
+        bids: new Map(bookRef.current.bids),
+      });
+      batchTimer.current = null;
+    }, 100); // 100ms throttle is standard for trading UI
+  };
 
   useEffect(() => {
     if (!socket) return;
 
-    // Handle initial snapshot
     const handleSnapshot = (payload: any) => {
       const asks = new Map();
       const bids = new Map();
-      
       payload.orderbook.asks.forEach((n: any) => {
         const p = Number(n.price);
-        const q = Number(n.quantity);
-        asks.set(p, { price: p, quantity: q, total: p * q });
+        asks.set(p, { price: p, quantity: Number(n.quantity), total: p * Number(n.quantity) });
       });
-
       payload.orderbook.bids.forEach((n: any) => {
         const p = Number(n.price);
-        const q = Number(n.quantity);
-        bids.set(p, { price: p, quantity: q, total: p * q });
+        bids.set(p, { price: p, quantity: Number(n.quantity), total: p * Number(n.quantity) });
       });
-
-      setOrderbook({ asks, bids });
+      bookRef.current = { asks, bids };
+      triggerUpdate();
     };
 
-    // Handle lightweight events (shortened keys: p, q, s, ts)
-    const handlePlaced = (data: any) => {
-      const side = data.s as Side;
-      handlePlace(data.p, data.q, side);
+    const handleUpdate = (data: any, type: 'placed' | 'filled' | 'cancelled') => {
+      const { p, q, s } = data;
+      const targetMap = s === "ask" ? bookRef.current.asks : bookRef.current.bids;
+
+      if (type === 'cancelled' || (type === 'filled' && (targetMap.get(p)?.quantity || 0) <= q)) {
+        targetMap.delete(p);
+      } else {
+        const existing = targetMap.get(p);
+        const newQty = type === 'placed' ? (existing?.quantity || 0) + q : (existing?.quantity || 0) - q;
+        targetMap.set(p, { price: p, quantity: newQty, total: p * newQty });
+      }
+      triggerUpdate();
     };
 
-    const handleFilled = (data: any) => {
-      const side = data.s as Side;
-      handleFill(data.p, data.q, side);
-    };
-
-    const handlePartial = (data: any) => {
-      const side = data.s as Side;
-      handleFill(data.p, data.q, side);
-    };
-
-    const handleCancelled = (data: any) => {
-      const side = data.s as Side;
-      handleCancel(data.p, side);
-    };
-
-    // Register listeners
     socket.on("snapshot", handleSnapshot);
-    socket.on("order:placed", handlePlaced);
-    socket.on("order:filled", handleFilled);
-    socket.on("order:partial", handlePartial);
-    socket.on("order:cancelled", handleCancelled);
+    socket.on("order:placed", (d) => handleUpdate(d, 'placed'));
+    socket.on("order:filled", (d) => handleUpdate(d, 'filled'));
+    socket.on("order:partial", (d) => handleUpdate(d, 'filled'));
+    socket.on("order:cancelled", (d) => handleUpdate(d, 'cancelled'));
 
     return () => {
-      socket.off("snapshot", handleSnapshot);
-      socket.off("order:placed", handlePlaced);
-      socket.off("order:filled", handleFilled);
-      socket.off("order:partial", handlePartial);
-      socket.off("order:cancelled", handleCancelled);
+      socket.off("snapshot");
+      socket.off("order:placed");
+      socket.off("order:filled");
+      socket.off("order:partial");
+      socket.off("order:cancelled");
+      if (batchTimer.current) clearTimeout(batchTimer.current);
     };
-  }, [socket, handlePlace, handleFill, handleCancel]);
+  }, [socket]);
 
-  /* ============================== */
-  /* ========= Render ============= */
-  /* ============================== */
+  // Deriving sorted data from displayData (which only updates every 100ms)
+  const sortedAsks = useMemo(() => {
+    return Array.from(displayData.asks.values())
+      .sort((a, b) => a.price - b.price)
+      .slice(0, 20)
+      .reverse();
+  }, [displayData.asks]);
+
+  const sortedBids = useMemo(() => {
+    return Array.from(displayData.bids.values())
+      .sort((a, b) => b.price - a.price)
+      .slice(0, 20);
+  }, [displayData.bids]);
+
+  const spread = useMemo(() => {
+    const bestAsk = Math.min(...Array.from(displayData.asks.keys()));
+    const bestBid = Math.max(...Array.from(displayData.bids.keys()));
+    return (bestAsk !== Infinity && bestBid !== -Infinity) ? (bestAsk - bestBid).toFixed(4) : "—";
+  }, [displayData.asks, displayData.bids]);
 
   return (
-    <div className="w-full h-full rounded-2xl" style={{ background: "#FAF8F6" }}>
-      {/* Header */}
-      <div className="px-3 py-2">
-        <h3 className="text-xs font-semibold" style={{ color: "var(--phoenix-text-primary)" }}>
-          Order Book
-        </h3>
-      </div>
-
-      {/* Column Headers */}
-      <div
-        className="grid grid-cols-3 gap-2 px-3 py-2 text-[10px] font-medium"
-        style={{ color: "var(--phoenix-text-subtle)" }}
-      >
+    <div className="w-full h-full rounded-2xl bg-[#FAF8F6] flex flex-col">
+      <div className="px-3 py-2 text-xs font-semibold text-[var(--phoenix-text-primary)]">Order Book</div>
+      
+      <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[10px] font-medium text-[var(--phoenix-text-subtle)]">
         <div>Price</div>
         <div className="text-right">AMOUNT SOL</div>
         <div className="text-right">AMOUNT USDC</div>
       </div>
 
-      <div className="flex flex-col h-[calc(100%-80px)]">
-        {/* Asks */}
-        <div className="overflow-y-auto flex flex-col justify-end h-[calc(50%-20px)]">
-          {sortedAsks.length ? (
-            sortedAsks.map((level) => (
-              <OrderBookRow key={level.price} {...level} side="ask" />
-            ))
-          ) : (
-            <EmptyState label="No sell orders" />
-          )}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col justify-end overflow-hidden">
+          {sortedAsks.map(level => <MemoizedRow key={level.price} {...level} side="ask" />)}
         </div>
 
-        {/* Spread */}
-        <div className="px-3 py-2" style={{ background: "var(--phoenix-bg-main)" }}>
-          <span className="text-[10px]" style={{ color: "var(--phoenix-text-subtle)" }}>
-            Spread: {spread}
-          </span>
+        <div className="px-3 py-1 bg-[var(--phoenix-bg-main)] text-[10px] text-[var(--phoenix-text-subtle)]">
+          Spread: {spread}
         </div>
 
-        {/* Bids */}
-        <div className="overflow-y-auto h-[calc(50%-20px)]">
-          {sortedBids.length ? (
-            sortedBids.map((level) => (
-              <OrderBookRow key={level.price} {...level} side="bid" />
-            ))
-          ) : (
-            <EmptyState label="No buy orders" />
-          )}
+        <div className="flex-1 overflow-hidden">
+          {sortedBids.map(level => <MemoizedRow key={level.price} {...level} side="bid" />)}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ============================== */
-/* ===== Small Components ======= */
-/* ============================== */
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div
-      className="flex items-center justify-center h-full text-xs"
-      style={{ color: "var(--phoenix-text-subtle)" }}
-    >
-      {label}
     </div>
   );
 }
