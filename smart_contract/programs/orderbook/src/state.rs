@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
 use anchor_lang::{AnchorSerialize, AnchorDeserialize};
-use crate::events::OrderFillEvent;
 use crate::states::order_schema::{self, enums::Side};
 
 #[account]
