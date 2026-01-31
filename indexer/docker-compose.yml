@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: indexer
+    restart: always
+    environment:
+      POSTGRES_USER: danish
+      POSTGRES_PASSWORD: indexer
+      POSTGRES_DB: indexer
+    ports:
+      - "5432:5432"
+    volumes:
+      - dex_data:/var/lib/postgresql/data
+
+volumes:
+  dex_data:
