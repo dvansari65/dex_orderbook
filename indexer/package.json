@@ -6,21 +6,27 @@
     "start": "ts-node src/index.ts",
     "api": "ts-node src/api.ts",
     "dev": "ts-node src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "seed": "tsx scripts/seedCandles.ts"
   },
   "type": "commonjs",
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@prisma/adapter-pg": "^7.3.0",
+    "@prisma/client": "^7.3.0",
     "@solana/web3.js": "^1.98.4",
     "@types/node": "^24.10.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "pg": "^8.18.0",
     "socket.io": "^4.8.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "prisma": "^7.3.0",
+    "tsx": "^4.21.0"
   }
 }
