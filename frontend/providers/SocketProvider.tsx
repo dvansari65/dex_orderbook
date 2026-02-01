@@ -1,34 +1,55 @@
-"use client"
-import { initialiseSocket } from "@/lib/socket";
-import { ReactNode, useContext, useEffect } from "react";
-import { createContext } from "react";
+"use client";
 
+import { getSocket, destroySocket } from "@/lib/socket";
+import { ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
+import type { Socket } from "socket.io-client";
 
-interface socketProviderProps {
-    children:ReactNode
+interface SocketProviderProps {
+  children: ReactNode;
 }
 
-const SocketContext = createContext<ReturnType<typeof initialiseSocket> | null>(null)
+const SocketContext = createContext<Socket | null>(null);
 
-export const SocketProvider = ({children}:socketProviderProps)=>{
-    const socket = initialiseSocket()
-    useEffect(()=>{
-        socket.connect();
-        return ()=>{
-            socket.disconnect()
-        }
-    },[])
-    return (
-        <SocketContext.Provider value={socket}>
-            {children}
-        </SocketContext.Provider>
-    )
-}
+export const SocketProvider = ({ children }: SocketProviderProps) => {
+  const socketRef = useRef<Socket | null>(null);
+  const [connected, setConnected] = useState(false);
 
-export const useSocket = ()=>{
-    const socket = useContext(SocketContext)
-    if(!socket){
-        throw new Error("useSocket must be used within SocketProvider")
-    }
-    return socket;
-}
+  if (!socketRef.current) {
+    socketRef.current = getSocket();
+  }
+
+  useEffect(() => {
+    const socket = socketRef.current!;
+
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
+    const onError = (err: Error) => console.error("[Socket] connection error:", err);
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect_error", onError);
+
+    socket.connect();
+
+    return () => {
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect_error", onError);
+      destroySocket();
+    };
+  }, []);
+
+  return (
+    <SocketContext.Provider value={connected ? socketRef.current : null}>
+      {children}
+    </SocketContext.Provider>
+  );
+};
+
+export const useSocket = (): Socket => {
+  const socket = useContext(SocketContext);
+  if (!socket) {
+    throw new Error("useSocket must be used within SocketProvider or socket is not yet connected");
+  }
+  return socket;
+};
