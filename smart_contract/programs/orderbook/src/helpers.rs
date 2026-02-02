@@ -243,6 +243,7 @@ pub fn match_orders(
     order: &mut Order,
     asks: &mut Slab,
     bids: &mut Slab,
+    market_pubkey:&Pubkey,
     event_queue: &mut EventQueue,
 ) -> Result<MatchResult> {
     // 1. Identify the correct side to match against
@@ -315,6 +316,7 @@ pub fn match_orders(
                 execution_price,
                 fill_qty,
                 order.quantity,
+                market_pubkey
             )?;
         } else {
             emit_partial_fill_order(
@@ -326,6 +328,7 @@ pub fn match_orders(
                 execution_price,
                 fill_qty,
                 order.quantity,
+                market_pubkey
             )?;
         }
 
@@ -400,6 +403,7 @@ pub fn match_ioc_orders(
     bids: &mut Slab,
     side: Side,
     order: &mut Order,
+    market_pubkey:&Pubkey
 ) -> Result<()> {
    match side {
        Side::Ask =>{
@@ -449,6 +453,7 @@ pub fn match_ioc_orders(
                 order.price,
                 available_qty,
                 0,
+                market_pubkey
             )?;
        },
        Side::Bid => {
@@ -493,6 +498,7 @@ pub fn match_ioc_orders(
                     order.price,
                     available_qty,
                     order.quantity,
+                    market_pubkey
                 )?;
                 msg!("order partially filled! order ID :{:?}",order.order_id);
             }
@@ -507,6 +513,7 @@ pub fn match_ioc_orders(
                     order.price,
                     available_qty,
                     remaining_qty,
+                    market_pubkey
                 )?;
                 msg!("order partially filled! order ID :{:?}",order.order_id);
             }
@@ -522,6 +529,7 @@ pub fn match_ioc_orders(
                     order.price,
                     available_qty,
                     remaining_qty,
+                    market_pubkey
                 )?;
            msg!("Order partially filled! Order ID:{:?} and maker order ID:{:?}",order.order_id,maker_order_id);
        }
