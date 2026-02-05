@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::{AnchorSerialize, AnchorDeserialize};
-use crate::states::order_schema::{self, enums::Side};
+use crate::states::order_schema::{ enums::Side};
 
 #[account]
 #[derive(InitSpace)]
@@ -125,6 +125,7 @@ pub struct QueueEvent {
     pub base_quantity: u64,
     pub client_order_id: u64,
     pub timestamp: i64,
+    pub market_pubkey: Pubkey,
 }
 
 #[account]
