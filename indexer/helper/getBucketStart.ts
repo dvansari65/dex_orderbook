@@ -2,7 +2,7 @@
 
 
 export const getBucketStart = (date:Date,resolution:string)=>{
-    const d = new Date(date) 
+    const d = new Date(date.getTime()) 
     switch (resolution){
         case "1m":
             d.setSeconds(0,0);
