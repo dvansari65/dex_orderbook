@@ -245,20 +245,18 @@ pub fn match_orders(
     bids: &mut Slab,
     market_pubkey: &Pubkey,
     event_queue: &mut EventQueue,
-) -> Result<MatchResult> {
+) -> Result<()> {
     // 1. Identify the correct side to match against
-    let opposite_slab = match side {
-        Side::Ask => bids, // Sellers match with existing Bids
-        Side::Bid => asks, // Buyers match with existing Asks
+    let (opposite_slab,same_slab) = match side {
+        Side::Ask => (bids , asks), // Sellers match with existing Bids
+        Side::Bid => (asks,bids), // Buyers match with existing Asks
     };
-
-    let initial_quantity = order.quantity;
     let mut total_quote_qty = 0u64;
 
     // 2. Matching Loop
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
-        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled) = {
+        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled,quantity_remained) = {
             let best_opposite = opposite_slab.nodes.first_mut().unwrap();
 
             // 3. Price Cross Check
@@ -285,6 +283,7 @@ pub fn match_orders(
                 .quantity
                 .checked_sub(fill_qty)
                 .ok_or(OrderError::UnderFlow)?;
+            let quantity_remained =  best_opposite.quantity;
 
             (
                 fill_qty,
@@ -292,9 +291,9 @@ pub fn match_orders(
                 best_opposite.order_id.clone(),
                 best_opposite.owner,
                 best_opposite.quantity == 0,
+                quantity_remained
             )
         };
-
         // 4. Calculate Quote Volume
         let quote_qty = fill_qty
             .checked_mul(execution_price)
@@ -305,13 +304,13 @@ pub fn match_orders(
             .ok_or(OrderError::OverFlow)?;
         // 5. Emit Event & Update Status
         // We emit ONE event per match. Your indexer uses this to update both sides.
-        let event_type = if order.quantity == 0 {
+        let event_type = if maker_filled {
             EventType::Fill
         } else {
             EventType::PartialFill
         };
         if event_type == EventType::Fill {
-            let event = OrderFillEvent {
+            emit!(OrderFillEvent {
                 maker: maker_owner,
                 maker_order_id: maker_id,
                 taker: order.owner,
@@ -319,11 +318,13 @@ pub fn match_orders(
                 side,
                 price: execution_price,
                 base_lots_filled: fill_qty,
-                base_lots_remaining: order.quantity,
+                base_lots_remaining: quantity_remained,
                 timestamp: Clock::get()?.unix_timestamp,
-                market_pubkey: *market_pubkey,
-            };
-            emit!(event);
+                market_pubkey: *market_pubkey
+            });
+            let removed_order = opposite_slab.remove_order(&maker_id)?;
+            msg!("order ID:{} removed from the Slab, Order status{:?}",removed_order.order_id,removed_order.order_status);
+            msg!("order fill event emitted from match order function:market key {} and maker key:{}",market_pubkey,maker_owner);
         } else {
             emit!(OrderPartialFillEvent {
                 maker: maker_owner,
@@ -333,10 +334,26 @@ pub fn match_orders(
                 side,
                 price: execution_price,
                 base_lots_filled: fill_qty,
-                base_lots_remaining: order.quantity,
+                base_lots_remaining: quantity_remained,
                 timestamp: Clock::get()?.unix_timestamp,
                 market_pubkey: *market_pubkey
             });
+        }
+        if order.quantity == 0 {
+            order.order_status = OrderStatus::Fill;
+            msg!("Taker with order ID :{},public key :{} completely filled!",order.order_id,order.owner);
+        }else {
+            same_slab.insert_order(
+                order.order_id, 
+                order.quantity, 
+                order.owner, 
+                order.price, 
+                OrderStatus::PartialFill, 
+                order.client_order_id, 
+                market_pubkey, 
+                side
+            )?;
+            order.order_status = OrderStatus::PartialFill
         }
         let event = QueueEvent {
             event_type,
@@ -352,27 +369,8 @@ pub fn match_orders(
         };
         event_queue.insert_event(event)?;
         // 6. Cleanup: Remove fully filled Maker from the book
-        if maker_filled {
-            opposite_slab.remove_order(&maker_id)?;
-            msg!("Opposite Order Fully filled and removed from slab");
-        }
     }
-    // 7. Finalize Taker Status
-    let filled_quantity = initial_quantity - order.quantity;
-    order.order_status = if order.quantity == 0 {
-        OrderStatus::Fill
-    } else if filled_quantity > 0 {
-        OrderStatus::PartialFill
-    } else {
-        OrderStatus::Open
-    };
-
-    Ok(MatchResult {
-        filled_quantity,
-        remaining_quantity: order.quantity,
-        order_status: order.order_status,
-        total_quote_qty,
-    })
+    Ok(())
 }
 
 pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<()> {
