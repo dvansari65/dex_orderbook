@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 
 use crate::error::{ErrorCode, EventError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::events::*;
-use crate::state::{EventQueue, EventType, Market, OrderStatus, QueueEvent};
+use crate::state::{EventQueue, EventType, Market, OrderStatus, OrderType, QueueEvent};
 
 use crate::state::{Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
@@ -12,6 +12,7 @@ impl Slab {
     pub fn insert_order(
         &mut self,
         order_id: u64,
+        order_type:&OrderType,
         quantity: u64,
         owner: Pubkey,
         price: u64,
@@ -32,6 +33,10 @@ impl Slab {
             *market != Pubkey::default(),
             MarketError::InvalidMarketAccount
         );
+        if *order_type == OrderType::ImmediateOrCancel {
+            msg!("This order tye can not pushed into the slab!");
+            return Ok(());
+        }
         let new_node = Node {
             price,
             quantity,
@@ -231,13 +236,6 @@ impl OpenOrders {
     }
 }
 
-pub struct MatchResult {
-    pub filled_quantity: u64,
-    pub remaining_quantity: u64,
-    pub order_status: OrderStatus,
-    pub total_quote_qty: u64,
-}
-
 pub fn match_orders(
     side: Side,
     order: &mut Order,
@@ -245,14 +243,14 @@ pub fn match_orders(
     bids: &mut Slab,
     market_pubkey: &Pubkey,
     event_queue: &mut EventQueue,
-) -> Result<()> {
+) -> Result<u64> {
     // 1. Identify the correct side to match against
     let (opposite_slab,same_slab) = match side {
         Side::Ask => (bids , asks), // Sellers match with existing Bids
         Side::Bid => (asks,bids), // Buyers match with existing Asks
     };
     let mut total_quote_qty = 0u64;
-
+    let mut filled_qty = 0u64;
     // 2. Matching Loop
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
@@ -265,11 +263,9 @@ pub fn match_orders(
                 Side::Ask => order.price <= best_opposite.price, // Selling for 10 into a Bid for 11
                 Side::Bid => order.price >= best_opposite.price, // Buying for 10 into an Ask for 9
             };
-
             if !can_match {
                 break;
             }
-
             let fill_qty = best_opposite.quantity.min(order.quantity);
             let execution_price = best_opposite.price; // Trade executes at the price already on the book
 
@@ -284,7 +280,6 @@ pub fn match_orders(
                 .checked_sub(fill_qty)
                 .ok_or(OrderError::UnderFlow)?;
             let quantity_remained =  best_opposite.quantity;
-
             (
                 fill_qty,
                 execution_price,
@@ -298,6 +293,8 @@ pub fn match_orders(
         let quote_qty = fill_qty
             .checked_mul(execution_price)
             .ok_or(OrderError::OverFlow)?;
+        // created this variable to return the filled quantity to get this qty in the instruction
+        filled_qty = fill_qty;
 
         total_quote_qty = total_quote_qty
             .checked_add(quote_qty)
@@ -339,22 +336,6 @@ pub fn match_orders(
                 market_pubkey: *market_pubkey
             });
         }
-        if order.quantity == 0 {
-            order.order_status = OrderStatus::Fill;
-            msg!("Taker with order ID :{},public key :{} completely filled!",order.order_id,order.owner);
-        }else {
-            same_slab.insert_order(
-                order.order_id, 
-                order.quantity, 
-                order.owner, 
-                order.price, 
-                OrderStatus::PartialFill, 
-                order.client_order_id, 
-                market_pubkey, 
-                side
-            )?;
-            order.order_status = OrderStatus::PartialFill
-        }
         let event = QueueEvent {
             event_type,
             order_id: order.order_id.clone(),
@@ -368,9 +349,8 @@ pub fn match_orders(
             market_pubkey: *market_pubkey,
         };
         event_queue.insert_event(event)?;
-        // 6. Cleanup: Remove fully filled Maker from the book
     }
-    Ok(())
+    Ok(filled_qty)
 }
 
 pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<()> {
@@ -594,7 +574,6 @@ impl EventQueue {
         if self.count == 0 {
             return None;
         }
-
         let event = self.events[self.tail as usize].clone();
         self.tail = (self.tail + 1) % Self::CAPACITY as u32;
         self.count -= 1;
