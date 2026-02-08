@@ -1,5 +1,6 @@
 import { BN } from "@coral-xyz/anchor";
-import { Market, Node } from "../../types/market";
+import { convertNodeOutputType, Market, Node } from "../../types/market";
+import { convertEventOutput, Side } from "../../types/events";
 
 
 export class Conversion {
@@ -22,17 +23,24 @@ export class Conversion {
         return (quantity * this.baseLotSize) / Math.pow(10, this.decimals);
     }
 
-    convertNode(node: any) {
-        // Handle side carefully - Phoenix sides are often enums (0, 1)
-        let side = node.side;
-        if (typeof side === 'object') {
-            side = Object.keys(side)[0]; // handles { ask: {} } format
-        }
-
+    convertNode(node: any):convertNodeOutputType {
         return {
           price: node.price instanceof BN ? node.price.toNumber() : Number(node.price),
           quantity: this.quantityToHuman(node.quantity instanceof BN ? node.quantity.toNumber() : node.quantity),
-          side: side?.toLowerCase(), // "ask" or "bid"
+          orderId: node.orderId instanceof BN ? node?.orderId.toNumber() : Number(node?.orderId)
         };
+    }
+    convertEvent(event:any):convertEventOutput{
+        if(!event?.orderId){
+            console.log("Order id not found!")
+        }
+        const side = event.side && "bid" in  event?.side ? Side.Bid : Side.Ask
+        return {
+            price:event?.price?.toNumber(),
+            side,
+            quantity:event?.baseLots?.toNumber()/1000 ,
+            timestamp:event?.timestamp?.toNumber(),
+            orderId: event?.orderId?.toNumber()
+        }
     }
 }
