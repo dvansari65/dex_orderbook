@@ -18,9 +18,14 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use std::{ u32};
+    use std::u32;
 
-    use crate::{error::ErrorCode, events::emit_order_placed, helpers::{ match_orders, match_post_only_orders}, states::order_schema::enums::Side};
+    use crate::{
+        error::ErrorCode,
+        events::emit_order_placed,
+        helpers::{match_ioc_orders, match_orders, match_post_only_orders},
+        states::order_schema::enums::Side,
+    };
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -93,14 +98,12 @@ pub mod orderbook {
         let owner = &mut ctx.accounts.owner.clone();
         let event_queue = &mut ctx.accounts.event_queue;
         let order_id = market.next_order_id;
-        let asks = &mut ctx.accounts.asks;
-        let bids = &mut ctx.accounts.bids;
         let market_pubkey = market.key();
         msg!(
             "order size which is obtain from user:{}",
             market.min_order_size
         );
-        msg!("price in quote lots:{:?}",price_in_quote_lots);
+        msg!("price in quote lots:{:?}", price_in_quote_lots);
         market.next_order_id = market
             .next_order_id
             .checked_add(1)
@@ -124,8 +127,7 @@ pub mod orderbook {
             price: price_in_quote_lots,
             order_status: OrderStatus::PartialFill,
         };
-        
-       
+
         match side {
             Side::Bid => {
                 let amount_to_lock = price_in_quote_lots
@@ -148,12 +150,12 @@ pub mod orderbook {
                     ctx.accounts.user_quote_vault.mint == market.quote_mint,
                     MarketError::InvalidTokenMint
                 );
-                
+
                 require!(
                     ctx.accounts.quote_vault.mint == market.quote_mint,
                     MarketError::InvalidTokenMint
                 );
-                msg!("balance of user:{}",ctx.accounts.user_quote_vault.amount);
+                msg!("balance of user:{}", ctx.accounts.user_quote_vault.amount);
                 anchor_spl::token::transfer(
                     CpiContext::new(
                         ctx.accounts.token_program.to_account_info(),
@@ -187,7 +189,7 @@ pub mod orderbook {
                     ctx.accounts.user_base_vault.mint == market.base_mint,
                     MarketError::InvalidTokenMint
                 );
-              
+
                 anchor_spl::token::transfer(
                     CpiContext::new(
                         ctx.accounts.token_program.to_account_info(),
@@ -214,49 +216,63 @@ pub mod orderbook {
             price_in_quote_lots,
             base_lots,
         )?;
+        let (asks, bids) = (&mut ctx.accounts.asks, &mut ctx.accounts.bids);
         match order_type {
             OrderType::Limit => {
-                match_orders(side, &mut created_order,&mut *asks, &mut *bids ,&market_pubkey,event_queue)?;
+                match_orders(
+                    side,
+                    &mut created_order,
+                    asks,
+                    bids,
+                    &market_pubkey,
+                    event_queue,
+                )?;
+                if created_order.quantity > 0 {
+                    Slab::insert_order(
+                        asks,
+                        order_id,
+                        &order_type,
+                        base_lots,
+                        ctx.accounts.owner.key(),
+                        price_in_quote_lots,
+                        OrderStatus::PartialFill,
+                        client_order_id,
+                        &market_pubkey,
+                        side,
+                    )?;
+                }
             }
             OrderType::PostOnly => {
-                match_post_only_orders(&mut *asks, &mut *bids, side, &created_order)?;
+                match_post_only_orders(asks, bids, side, &created_order)?;
+                // After confirming it won't cross, INSERT to book
+                let target_slab = match side {
+                    Side::Ask => asks,
+                    Side::Bid => bids,
+                };
+                target_slab.insert_order(
+                    created_order.order_id,
+                    &created_order.order_type,
+                    created_order.quantity,
+                    created_order.owner,
+                    created_order.price,
+                    OrderStatus::Open,
+                    created_order.client_order_id,
+                    &market_pubkey,
+                    side,
+                )?;
             }
             OrderType::ImmediateOrCancel => {
-                
+                match_ioc_orders(asks, bids, side, &mut created_order, &market_pubkey)?;
             }
         }
-        match side {
-            Side::Ask => {
-                Slab::insert_order(
-                    asks,
-                    order_id,
-                    &order_type,
-                    base_lots,
-                    ctx.accounts.owner.key(),
-                    price_in_quote_lots,
-                    OrderStatus::PartialFill,
-                    client_order_id,
-                    &market_pubkey,
-                    side,
-                )?;
-            }
-            Side::Bid => {
-                Slab::insert_order(
-                    bids,
-                    order_id,
-                    &order_type,
-                    base_lots,
-                    ctx.accounts.owner.key(),
-                    price_in_quote_lots,
-                    OrderStatus::PartialFill,
-                    client_order_id,
-                    &market_pubkey,
-                    side,
-                )?;
-            }
-        }
+
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
-        msg!("price after placing the order:{:?}",price_in_quote_lots);
+        market.next_order_id = market
+            .next_order_id
+            .checked_add(1)
+            .ok_or(MarketError::OrderIdOverFlow)?;
+
+        msg!("price after placing the order:{:?}", price_in_quote_lots);
         msg!("order pushed : {:?} into the open order:", pushed_order);
         Ok(())
     }
@@ -275,11 +291,19 @@ pub mod orderbook {
             .position(|n| n.order_id == order_id)
             .ok_or(OpenOrderError::OrderNotFound)?;
 
-        let (side,owner,client_order_id,price,quantity,order_id,order_type) = {
-           let order =  open_order.orders.get(order_position).unwrap();
-           (order.side,order.owner,order.client_order_id,order.price,order.quantity,order.order_id,order.order_type)
+        let (side, owner, client_order_id, price, quantity, order_id, order_type) = {
+            let order = open_order.orders.get(order_position).unwrap();
+            (
+                order.side,
+                order.owner,
+                order.client_order_id,
+                order.price,
+                order.quantity,
+                order.order_id,
+                order.order_type,
+            )
         };
-       
+
         match side {
             Side::Ask => {
                 let locked_base = quantity;
@@ -316,9 +340,7 @@ pub mod orderbook {
                 )?;
             }
             Side::Bid => {
-                let quote_amount = price
-                    .checked_mul(quantity)
-                    .ok_or(ErrorCode::OverFlow)?;
+                let quote_amount = price.checked_mul(quantity).ok_or(ErrorCode::OverFlow)?;
 
                 open_order.quote_locked = open_order
                     .quote_locked
@@ -357,16 +379,16 @@ pub mod orderbook {
 
         let returned_open_order = open_order.remove_order(order_id)?;
         let event = QueueEvent {
-            event_type:EventType::Cancel,
+            event_type: EventType::Cancel,
             order_id,
-            owner:owner,
-            counterparty:Pubkey::default(),
-            side:side,
-            price:price,
-            base_quantity:quantity,
-            client_order_id:client_order_id,
-            timestamp:Clock::get()?.unix_timestamp,
-            market_pubkey:market.key()
+            owner: owner,
+            counterparty: Pubkey::default(),
+            side: side,
+            price: price,
+            base_quantity: quantity,
+            client_order_id: client_order_id,
+            timestamp: Clock::get()?.unix_timestamp,
+            market_pubkey: market.key(),
         };
         EventQueue::insert_event(event_queue, event)?;
         msg!(
