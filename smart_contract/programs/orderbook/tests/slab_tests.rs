@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use orderbook::{state::{OrderStatus, Slab}, states::order_schema::enums::Side};
+use orderbook::{state::{OrderStatus, OrderType, Slab}, states::order_schema::enums::Side};
 use std::str::FromStr;
 
 fn dummy_pubkey() -> Pubkey {
@@ -18,8 +18,9 @@ fn test_insert_order() {
     let owner = dummy_pubkey();
     let market = dummy_pubkey();
     let order_status= OrderStatus::PartialFill;
+    let order_type = OrderType::Limit;
     // Insert first order
-    slab.insert_order(1, 100, owner, 100,order_status,3450,&market,Side::Ask).unwrap();
+    slab.insert_order(1,&order_type, 100, owner, 100,order_status,3450,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 1);
     assert_eq!(slab.nodes.len(), 1);
     assert_eq!(slab.nodes[0].price, 50);
@@ -28,19 +29,19 @@ fn test_insert_order() {
     msg!(" free list len from test {:?}", slab.free_list_len);
 
     // Insert second order with lower price (should go before)
-    slab.insert_order(2, 200, owner, 101,order_status,4003,&market,Side::Ask).unwrap();
+    slab.insert_order(2,&order_type, 200, owner, 101,order_status,4003,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 2);
     assert_eq!(slab.nodes[1].price, 30);
     assert_eq!(slab.nodes[0].price, 50);
     assert_eq!(slab.free_list_len, 1022);
     msg!(" free list len from test {:?}", slab.free_list_len);
     // Insert third order with higher price (should go last)
-    slab.insert_order(3, 150, owner, 101,order_status,2027,&market,Side::Ask).unwrap();
+    slab.insert_order(3,&order_type, 150, owner, 101,order_status,2027,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 3);
     assert_eq!(slab.nodes[2].price, 60);
     assert_eq!(slab.free_list_len, 1021);
 
-    slab.insert_order(4, 110, owner, 103,order_status,2027,&market,Side::Ask).unwrap();
+    slab.insert_order(4,&order_type, 110, owner, 103,order_status,2027,&market,Side::Ask).unwrap();
     assert_eq!(slab.leaf_count, 3);
     assert_eq!(slab.nodes[2].price, 60);
     assert_eq!(slab.free_list_len, 1021);
