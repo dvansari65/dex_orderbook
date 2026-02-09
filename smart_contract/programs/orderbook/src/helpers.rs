@@ -65,8 +65,7 @@ impl Slab {
             quantity,
             price,
             self.leaf_count
-        );
-        
+        );  
         msg!("slab data:{:?}", self.nodes);
         msg!("Event emission completed");
         Ok(())
@@ -237,9 +236,9 @@ pub fn match_orders(
     event_queue: &mut EventQueue,
 ) -> Result<u64> {
     // 1. Identify the correct side to match against
-    let opposite_slab = match side {
-        Side::Ask => bids, // Sellers match with existing Bids
-        Side::Bid => asks, // Buyers match with existing Asks
+    let (opposite_slab,_same_sla) = match side {
+        Side::Ask => (bids,asks), // Sellers match with existing Bids
+        Side::Bid => (asks,bids), // Buyers match with existing Asks
     };
     let mut total_quote_qty = 0u64;
     let mut filled_qty = 0u64;
@@ -342,6 +341,12 @@ pub fn match_orders(
         };
         event_queue.insert_event(event)?;
     }
+    if order.quantity <= 0 {
+        order.order_status = OrderStatus::Fill;
+
+    }else {
+        order.order_status = OrderStatus::PartialFill;
+    }
     Ok(filled_qty)
 }
 
@@ -358,7 +363,7 @@ pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Orde
             }
         }
         Side::Bid => {
-            if asks.nodes.is_empty() {
+            if !asks.nodes.is_empty() {
                 if bids.nodes.is_empty() {
                     return Ok(());
                 }
@@ -579,3 +584,34 @@ impl EventQueue {
         Some(&self.events[self.tail as usize])
     }
 }
+
+
+// flow of the events
+// first order place event is emitted!
+// event emitted and grab at the indexer 
+// event sent to the frontend via websockets
+// checked side is this "ask" or "bid"
+// pushed into the temp storage of orders by id
+// pushed in the price level if price not exist
+// if exist we will increase the quantity and adjust the total price
+// #### order matching flow #####
+// order matched successfully
+// suppose order filled event is emitted 
+// event emitted from the smart contract and fill qty is 5 @ price 102
+// event grabbed at the indexer
+// emmited to the frontend using sockets
+// find order by order id in temp storage and delete that mapping
+// and in price level find the price level
+// substract the quantity and adjust the total accordingly
+// if quantity becomes zero delete that mapping 
+
+// i am sending order fill or order partial events 
+// i am seding fill qty aand maker order id and taker order id
+// thing to note , both orders ar present at the frontend becasue we pushed order to the slab
+// let supose  place order data event is not emitting at the starting
+// order fill event will be emitted first 
+// maker's ui data will be updated first
+// and then place order emitted and pushed into the slab and event grabbed and sent to the frontend 
+// suppose side is "ask" and find price level let suppose 100
+// and if remaining qyt is 0 , we will not pushing into the ui slab
+// 
