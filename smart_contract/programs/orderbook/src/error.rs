@@ -19,7 +19,7 @@ pub enum OrderError {
     #[msg("Failed to get first order!")]
     InvalidNode,
     #[msg("Order can be match , So rejecting the order!")]
-    WouldMatchImmediately
+    WouldMatchImmediately,
 }
 
 #[error_code]
