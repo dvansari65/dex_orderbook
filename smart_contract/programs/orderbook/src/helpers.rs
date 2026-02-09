@@ -343,7 +343,6 @@ pub fn match_orders(
     }
     if order.quantity <= 0 {
         order.order_status = OrderStatus::Fill;
-
     }else {
         order.order_status = OrderStatus::PartialFill;
     }
