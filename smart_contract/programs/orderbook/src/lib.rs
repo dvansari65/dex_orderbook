@@ -20,7 +20,7 @@ use state::*;
 pub mod orderbook {
     use std::{ u32};
 
-    use crate::{error::ErrorCode, helpers::{ match_orders, match_post_only_orders}, states::order_schema::enums::Side};
+    use crate::{error::ErrorCode, events::emit_order_placed, helpers::{ match_orders, match_post_only_orders}, states::order_schema::enums::Side};
 
     use super::*;
     use anchor_spl::token::Transfer;
@@ -90,13 +90,12 @@ pub mod orderbook {
         println!("place order triggered:");
         let market = &mut ctx.accounts.market;
         let open_order = &mut ctx.accounts.open_order;
-        let owner = &mut ctx.accounts.owner;
+        let owner = &mut ctx.accounts.owner.clone();
         let event_queue = &mut ctx.accounts.event_queue;
         let order_id = market.next_order_id;
         let asks = &mut ctx.accounts.asks;
         let bids = &mut ctx.accounts.bids;
         let market_pubkey = market.key();
-        let mut filled_qty = 0u64;
         msg!(
             "order size which is obtain from user:{}",
             market.min_order_size
@@ -125,23 +124,8 @@ pub mod orderbook {
             price: price_in_quote_lots,
             order_status: OrderStatus::PartialFill,
         };
-        match order_type {
-            OrderType::Limit => {
-                let result = match_orders(side, &mut created_order, asks, bids ,&market_pubkey,event_queue)?;
-                filled_qty = result;
-            }
-            OrderType::PostOnly => {
-                match_post_only_orders(&asks, &bids, side, &created_order)?;
-            }
-            OrderType::ImmediateOrCancel => {
-                
-            }
-        }
-        let slab = match side {
-            Side::Ask => &mut ctx.accounts.asks,
-            Side::Bid => &mut ctx.accounts.bids,
-        };
-
+        
+       
         match side {
             Side::Bid => {
                 let amount_to_lock = price_in_quote_lots
@@ -164,10 +148,7 @@ pub mod orderbook {
                     ctx.accounts.user_quote_vault.mint == market.quote_mint,
                     MarketError::InvalidTokenMint
                 );
-                require!(
-                    ctx.accounts.quote_vault.amount >= 0, // just to check existence
-                    MarketError::DestinationVaultUninitialized
-                );
+                
                 require!(
                     ctx.accounts.quote_vault.mint == market.quote_mint,
                     MarketError::InvalidTokenMint
@@ -224,21 +205,55 @@ pub mod orderbook {
                     .ok_or(MarketError::MathOverflow)?;
             }
         }
-        let user_filled = base_lots - filled_qty == 0;
-        if user_filled {
-            created_order.order_status = OrderStatus::Fill;
-        }else {
-            Slab::insert_order(
-                slab,
-                order_id,
-                base_lots,
-                ctx.accounts.owner.key(),
-                price_in_quote_lots,
-                OrderStatus::PartialFill,
-                client_order_id,
-                &market_pubkey,
-                side,
-            )?;
+        emit_order_placed(
+            market.key(),
+            owner.key(),
+            order_id,
+            client_order_id,
+            side,
+            price_in_quote_lots,
+            base_lots,
+        )?;
+        match order_type {
+            OrderType::Limit => {
+                match_orders(side, &mut created_order,&mut *asks, &mut *bids ,&market_pubkey,event_queue)?;
+            }
+            OrderType::PostOnly => {
+                match_post_only_orders(&mut *asks, &mut *bids, side, &created_order)?;
+            }
+            OrderType::ImmediateOrCancel => {
+                
+            }
+        }
+        match side {
+            Side::Ask => {
+                Slab::insert_order(
+                    asks,
+                    order_id,
+                    &order_type,
+                    base_lots,
+                    ctx.accounts.owner.key(),
+                    price_in_quote_lots,
+                    OrderStatus::PartialFill,
+                    client_order_id,
+                    &market_pubkey,
+                    side,
+                )?;
+            }
+            Side::Bid => {
+                Slab::insert_order(
+                    bids,
+                    order_id,
+                    &order_type,
+                    base_lots,
+                    ctx.accounts.owner.key(),
+                    price_in_quote_lots,
+                    OrderStatus::PartialFill,
+                    client_order_id,
+                    &market_pubkey,
+                    side,
+                )?;
+            }
         }
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
         msg!("price after placing the order:{:?}",price_in_quote_lots);
