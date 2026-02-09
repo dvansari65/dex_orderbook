@@ -57,7 +57,7 @@ pub struct Node {
     pub prev: u32,             // Previous node index
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug,PartialEq)]
 pub enum OrderType {
     Limit,
     ImmediateOrCancel,
