@@ -66,15 +66,7 @@ impl Slab {
             price,
             self.leaf_count
         );
-        emit_order_placed(
-            *market,
-            owner,
-            order_id,
-            client_order_id,
-            side,
-            price,
-            quantity,
-        )?;
+        
         msg!("slab data:{:?}", self.nodes);
         msg!("Event emission completed");
         Ok(())
@@ -245,9 +237,9 @@ pub fn match_orders(
     event_queue: &mut EventQueue,
 ) -> Result<u64> {
     // 1. Identify the correct side to match against
-    let (opposite_slab,same_slab) = match side {
-        Side::Ask => (bids , asks), // Sellers match with existing Bids
-        Side::Bid => (asks,bids), // Buyers match with existing Asks
+    let opposite_slab = match side {
+        Side::Ask => bids, // Sellers match with existing Bids
+        Side::Bid => asks, // Buyers match with existing Asks
     };
     let mut total_quote_qty = 0u64;
     let mut filled_qty = 0u64;
