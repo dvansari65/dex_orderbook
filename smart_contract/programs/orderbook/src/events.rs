@@ -26,7 +26,9 @@ pub struct OrderFillEvent {
     pub base_lots_filled: u64,
     pub base_lots_remaining: u64,
     pub timestamp: i64,
+    pub market_pubkey: Pubkey
 }
+
 #[event]
 pub struct OrderPartialFillEvent {
     pub maker: Pubkey,
@@ -38,6 +40,7 @@ pub struct OrderPartialFillEvent {
     pub base_lots_filled: u64,
     pub base_lots_remaining: u64,
     pub timestamp: i64,
+    pub market_pubkey: Pubkey
 }
 
 #[event]
@@ -140,6 +143,7 @@ pub fn emit_order_fill(
     price: u64,
     base_lots_filled: u64,
     base_lots_remaining: u64,
+    market_pubkey: &Pubkey
 ) ->Result<OrderFillEvent>{
     emit!(OrderFillEvent {
         maker,
@@ -151,7 +155,9 @@ pub fn emit_order_fill(
         base_lots_filled,
         base_lots_remaining,
         timestamp: Clock::get().unwrap().unix_timestamp,
+        market_pubkey:*market_pubkey
     });
+    msg!("fill order event emitted: market pub key:{} maker key:{}",market_pubkey,maker);
     Ok(OrderFillEvent {
         maker,
         maker_order_id,
@@ -162,6 +168,7 @@ pub fn emit_order_fill(
         base_lots_filled,
         base_lots_remaining,
         timestamp: Clock::get().unwrap().unix_timestamp,
+        market_pubkey:*market_pubkey
     })
 }
 pub fn emit_partial_fill_order (
@@ -173,6 +180,7 @@ pub fn emit_partial_fill_order (
     price: u64,
     base_lots_filled: u64,
     base_lots_remaining: u64,
+    market_pubkey: &Pubkey
 )->Result<OrderPartialFillEvent> {
     emit!(OrderPartialFillEvent {
         maker,
@@ -184,8 +192,9 @@ pub fn emit_partial_fill_order (
         base_lots_filled,
         base_lots_remaining,
         timestamp: Clock::get().unwrap().unix_timestamp,
+        market_pubkey:*market_pubkey
     });
-   
+   msg!("partial fill order event emitted: market pub key:{} maker key:{}",market_pubkey,maker);
     Ok(OrderPartialFillEvent {
         maker,
         maker_order_id,
@@ -196,6 +205,7 @@ pub fn emit_partial_fill_order (
         base_lots_filled,
         base_lots_remaining,
         timestamp: Clock::get().unwrap().unix_timestamp,
+        market_pubkey:*market_pubkey
     })
 }
 
