@@ -1,5 +1,5 @@
 import { BN } from "@coral-xyz/anchor";
-import { convertNodeOutputType, Market, Node } from "../../types/market";
+import { convertNodeOutputType, Market } from "../../types/market";
 import { convertEventOutput, Side } from "../../types/events";
 
 
@@ -31,10 +31,7 @@ export class Conversion {
         };
     }
     convertEvent(event:any):convertEventOutput{
-        if(!event?.orderId){
-            console.log("Order id not found!")
-        }
-        const side = event.side && "bid" in  event?.side ? Side.Bid : Side.Ask
+        const side = event.side && "bid" in  event?.side ? Side.Bid : Side.Ask;
         return {
             price:event?.price?.toNumber(),
             side,
