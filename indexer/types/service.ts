@@ -7,5 +7,5 @@ export interface CandleSnapshot {
     close: number,
     high: number,
     low: number,
-    time: number
+    time: string | number 
 }
