@@ -6,22 +6,24 @@ import dotenv from "dotenv";
 import { EventListener } from "./listener";
 import { Conversion } from "./utils/conversion";
 import { Market } from "../types/market";
+import { handleFillEvent, snapshotOfCandle } from '../service/candle';
+import { BN } from "@coral-xyz/anchor";
+import { OrderEvent } from "../service/events";
+
+
 
 dotenv.config();
 
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8899";
 const PROGRAM_ID = process.env.PROGRAM_ID || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
-const PORT = parseInt(process.env.PORT || "3001", 10);
-
+const PORT = process.env.PORT || 3001;
+console.log("port:", PORT)
 if (!PROGRAM_ID || !MARKET_PUBKEY) {
   console.error("❌ PROGRAM_ID and MARKET_PUBKEY must be set in .env");
   process.exit(1);
 }
 
-console.log("🚀 Starting indexer...");
-console.log("📍 Market:", MARKET_PUBKEY);
-console.log("🔗 RPC:", RPC_URL);
 
 export const app = express();
 app.use(cors());
@@ -51,19 +53,28 @@ const fetchOrderBook = async (
   marketState: Market | null,
   conversion: Conversion
 ): Promise<{
-  asks: Array<{ price: number; quantity: number; side: string }>;
-  bids: Array<{ price: number; quantity: number; side: string }>;
+  asks: Array<{ price: number; quantity: number,orderId:number }>;
+  bids: Array<{ price: number; quantity: number,orderId:number }>;
 }> => {
+  // Validate market state before proceeding
+  if (!marketState || !marketState.asks || !marketState.bids) {
+    console.error("❌ Invalid market state - missing asks or bids");
+    return { asks: [], bids: [] };
+  }
+
+  const askSlabKey = marketState.asks.toString();
+  const bidSlabKey = marketState.bids.toString();
+
   const [askSlabData, bidSlabData] = await Promise.all([
-    listener.fetchAskSlabState(marketState?.asks?.toString() || ""),
-    listener.fetchBidSlabState(marketState?.bids?.toString() || ""),
+    listener.fetchAskSlabState(askSlabKey),
+    listener.fetchBidSlabState(bidSlabKey),
   ]);
 
   const convertNodes = (nodes: any[]) =>
     nodes
       .filter((node) => node && node.price)
       .map((node) => conversion.convertNode(node));
-
+  console.log("side:",)
   return {
     asks: askSlabData?.nodes ? convertNodes(askSlabData.nodes) : [],
     bids: bidSlabData?.nodes ? convertNodes(bidSlabData.nodes) : [],
@@ -91,7 +102,7 @@ io.on("connection", async (socket: Socket) => {
   try {
     // Fetch market state
     const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
-
+    console.log("makret state:", marketState)
     if (!marketState) {
       socket.emit("error", {
         message: "Market not found",
@@ -105,64 +116,60 @@ io.on("connection", async (socket: Socket) => {
 
     // Send initial snapshot
     const { asks, bids } = await fetchOrderBook(marketState, conversion);
+    console.log("asks:", asks)
+    console.log("bids:", bids)
+    // snapshot for candle chart
+    const candles = await snapshotOfCandle("1d", MARKET_PUBKEY)
 
+    console.log("candles:", candles)
+    // emitting the event
+    // Emit the event with proper structure
     socket.emit("snapshot", {
       market: formatMarketMetadata(marketState),
       orderbook: { asks, bids },
       timestamp: Date.now(),
+      candles: {  // Consistent structure
+        candles: candles.candles,
+        volumeData: candles.volumeData  // Changed to volumeData
+      }
     });
+    // In your indexer file
+    socket.on("resolution", async (data: { resolution: string }) => {
+      try {
+        const { resolution } = data;
+        const candles = await snapshotOfCandle(resolution, MARKET_PUBKEY);
 
+        // FIX: Use consistent structure with frontend
+        socket.emit(`resolution:${resolution}`, {
+          candles: {
+            candles: candles.candles,
+            volumeData: candles.volumeData  // Changed from volume to volumeData
+          }
+        });
+      } catch (error) {
+        console.error("Error handling resolution change:", error);
+      }
+    });
     console.log(
       `📸 Snapshot sent to ${socket.id}: ${asks.length} asks, ${bids.length} bids`
     );
-
     // Start event listener if not already running
     if (!eventCleanup) {
       eventCleanup = await listener.start(async (event) => {
         try {
-          const eventData = {
-            price: event.data.price,
-            quantity: event.data.baseLots,
-            side: event.data.side,
-          };
-
-          const converted = conversion.convertNode(eventData);
-
-          // Lightweight event payload
-          const payload = {
-            p: converted.price,
-            q: converted.quantity,
-            s: converted.side,
-            ts: Date.now(),
-          };
-
-          // Emit to all connected clients
-          switch (event.name) {
-            case "orderPlacedEvent":
-              io.emit("order:placed", payload);
-              break;
-
-            case "orderFillEvent":
-              io.emit("order:filled", payload);
-              break;
-
-            case "orderPartialFillEvent":
-              io.emit("order:partial", payload);
-              break;
-
-            case "orderCancelEvent":
-              io.emit("order:cancelled", {
-                p: converted.price,
-                s: converted.side,
-                ts: Date.now(),
-              });
-              break;
+          // Validate event data before processing
+          if (!event || !event.data) {
+            console.warn("⚠️ Invalid event data received");
+            return;
           }
-        } catch (error) {
+          console.log("event:",event)
+          await OrderEvent(event, io, marketState, socket)
+
+        } catch (error: any) {
           console.error("❌ Error processing event:", error);
+          io.emit("error", { message: error.message })
         }
       });
-
       console.log("🎧 Event listener started");
     }
 
