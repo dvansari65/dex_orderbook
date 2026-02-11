@@ -45,7 +45,7 @@ pub mod orderbook {
         asks.free_list_len = 32;
         bids.free_list_len = 32;
         asks.leaf_count = 0;
-        bids.leaf_count = 32;
+        bids.leaf_count = 0;
         asks.head_index = u32::MAX;
         bids.head_index = u32::MAX;
 
