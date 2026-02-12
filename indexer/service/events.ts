@@ -23,6 +23,7 @@ export const OrderEvent = async (event: any, io: Server, Market: Market | null, 
         };
         
         if (event.name === "orderPlacedEvent") {
+            console.log("order place price:",event?.data?.price?.toNumber())
             io.emit("order:placed", payload);
         }
         if(event.name == "orderFillEvent" || event.name === "orderPartialFillEvent"){
@@ -39,6 +40,7 @@ export const OrderEvent = async (event: any, io: Server, Market: Market | null, 
                 baseLotsRemaining:event?.data?.baseLotsRemaining.toNumber()/1000,
                 timestamp:event?.data?.timestamp.toNumber()
             }
+            console.log("orderFilledEventData:",orderFilledEventData)
             io.emit("order:filled", orderFilledEventData);
             const fillResult = await handleFillEvent(event?.data, event?.signature);
             if (!fillResult) {
