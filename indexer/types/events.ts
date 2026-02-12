@@ -7,6 +7,7 @@ export enum Side {
   Ask = "ask",
 }
 
+
 export interface OrderPlacedEvent {
   market: PublicKey;
   owner: PublicKey;
@@ -28,6 +29,7 @@ export interface OrderFillEvent {
   baseLotsFilled: BN;
   baseLotsRemaining: BN;
   timestamp: BN;
+  marketPubkey:PublicKey
 }
 
 export interface OrderPartialFillEvent {
@@ -40,6 +42,19 @@ export interface OrderPartialFillEvent {
   baseLotsFilled: BN;
   baseLotsRemaining: BN;
   timestamp: BN;
+  marketPubkey:PublicKey
+}
+
+export interface OrderFillEventData {
+  maker:string,
+  makerOrderId: number;
+  taker: number;
+  takerOrderId: number;
+  side: "ask" | "bid";
+  price: number;
+  baseLotsFilled: number;
+  baseLotsRemaining: number;
+  timestamp: number;
 }
 
 export interface OrderReducedEvent {
@@ -97,3 +112,24 @@ export interface TimeInForceEvent {
   lastValidUnixTimestampInSeconds: BN;
 }
 
+export interface FillEvent {
+  signature:string,
+  maker: PublicKey;
+  makerOrderId: BN;
+  taker: PublicKey;
+  takerOrderId: BN;
+  side: Side;
+  price: BN;
+  baseLotsFilled: BN;
+  baseLotsRemaining: BN;
+  timestamp: BN;
+  marketPubkey:PublicKey
+}
+
+export interface convertEventOutput {
+  price:number,      // price
+  side: Side,   // quantity
+  quantity: number,       // side (bid/ask) - REQUIRED
+  timestamp: number,
+  orderId:number
+}

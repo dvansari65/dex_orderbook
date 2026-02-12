@@ -1,6 +1,9 @@
+"use client"
+
 import React, { memo } from "react";
 import Orderbook from "@/components/orderbook";
 import SwappingInterface from "@/components/swapping-interface";
+import CandleChart from "@/components/CandleGraph";
 
 const Trading = memo(() => {
   return (
@@ -8,7 +11,7 @@ const Trading = memo(() => {
       {/* Left side: Static or slow-changing components */}
       <div className="flex flex-col flex-1 p-2 gap-2">
         <div className="flex-1 rounded-2xl min-h-[300px] bg-[#FAF8F6] flex items-center justify-center text-[var(--phoenix-text-subtle)]">
-          Candle Graph
+          <CandleChart/>
         </div>
         <div className="rounded-2xl h-64 lg:h-80 bg-[#FAF8F6] flex items-center justify-center text-[var(--phoenix-text-subtle)]">
           Order History
