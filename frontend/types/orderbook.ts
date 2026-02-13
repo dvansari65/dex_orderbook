@@ -524,7 +524,7 @@ export type Orderbook = {
           "type": "u64"
         },
         {
-          "name": "price",
+          "name": "priceInQuoteLots",
           "type": "u64"
         },
         {
@@ -724,6 +724,31 @@ export type Orderbook = {
       "code": 6000,
       "name": "orderNotFound",
       "msg": "Order not found in the Slab!"
+    },
+    {
+      "code": 6001,
+      "name": "invalidQty",
+      "msg": "Invalid quantity!"
+    },
+    {
+      "code": 6002,
+      "name": "invalidPrice",
+      "msg": "Invalid price!"
+    },
+    {
+      "code": 6003,
+      "name": "duplicateOrderId",
+      "msg": "Duplicate order id!"
+    },
+    {
+      "code": 6004,
+      "name": "invalidIndex",
+      "msg": "Invalid inserting index!"
+    },
+    {
+      "code": 6005,
+      "name": "underFlow",
+      "msg": "Quantity underflow!"
     }
   ],
   "types": [
@@ -1217,6 +1242,10 @@ export type Orderbook = {
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "marketPubkey",
+            "type": "pubkey"
           }
         ]
       }
@@ -1265,6 +1294,10 @@ export type Orderbook = {
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "marketPubkey",
+            "type": "pubkey"
           }
         ]
       }
@@ -1370,6 +1403,9 @@ export type Orderbook = {
           },
           {
             "name": "partialFill"
+          },
+          {
+            "name": "open"
           }
         ]
       }
@@ -1439,6 +1475,10 @@ export type Orderbook = {
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "marketPubkey",
+            "type": "pubkey"
           }
         ]
       }
