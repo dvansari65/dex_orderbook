@@ -19,8 +19,6 @@ export interface Market {
   padding: number[];
 }
 
-
-
 // Slab
 export interface Slab {
   headIndex: number;
@@ -35,7 +33,7 @@ export interface Node {
   owner: string;
   clientOrderId: number;
   timestamp: number;
-  orderId: string;
+  orderId: number;
   next: number;
   prev: number;
 }
@@ -111,4 +109,10 @@ export interface DisplayOrder {
   quantity: number;
   owner: string;
   orderId: string;
+}
+
+export interface convertNodeOutputType {
+  price:number,
+  quantity:number,
+  orderId:number
 }
