@@ -217,7 +217,6 @@ app.get("/health", async (req, res) => {
     timestamp: Date.now(),
   });
 });
-
 /**
  * Get current orderbook snapshot
  */
@@ -237,6 +236,7 @@ app.get("/orderbook", async (req, res) => {
       orderbook: { asks, bids },
       timestamp: Date.now(),
     });
+    
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
