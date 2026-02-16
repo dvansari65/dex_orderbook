@@ -48,24 +48,6 @@ Key responsibilities:
 * Prisma ORM
 * PostgreSQL
 
----
-
-## Project Structure
-
-```
-indexer/
-├── src/
-│   ├── index.ts          # Main server entry
-│   ├── listener.ts       # Blockchain event listener
-│   ├── service/          # Event + candle processing
-│   ├── utils/            # Conversion helpers
-│   └── idl/              # Program IDL
-├── prisma/               # Database schema & migrations
-├── scripts/              # Seed utilities
-└── package.json
-```
-
----
 
 ## Requirements
 
