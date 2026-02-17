@@ -27,17 +27,12 @@ export class EventListener {
     );
   }
 
-  /**
-   * Start listening to program events
-   * Returns cleanup function
-   */
   async start(callback: (event: any) => void): Promise<() => Promise<void>> {
     console.log("🎧 Starting event listener for:", this.program.programId.toString());
 
     this.logSubscriptionId = this.connection.onLogs(
       this.program.programId,
       (logs) => {
-        // Skip failed transactions early
         if (logs.err) {
           console.log("❌ Transaction failed:", logs.signature);
           return;
@@ -47,19 +42,12 @@ export class EventListener {
           const events = Array.from(this.eventParser.parseLogs(logs.logs));
 
           if (events.length === 0) {
-            return; // No events to process
+            return;
           }
 
-          // Process each event
           events.forEach((event) => {
-            // Filter only relevant order events
             if (this.isRelevantEvent(event.name)) {
-              console.log(`📨 ${event.name}:`, {
-                price: event.data.price?.toString(),
-                quantity: event.data.baseLots?.toString(),
-                side: event.data.side,
-              });
-              callback(event);
+              callback({...event,signature:logs.signature});
             }
           });
         } catch (error) {
@@ -71,15 +59,11 @@ export class EventListener {
 
     console.log("✅ Event listener active");
 
-    // Return cleanup function
     return async () => {
       await this.stop();
     };
   }
 
-  /**
-   * Check if event is relevant for orderbook updates
-   */
   private isRelevantEvent(eventName: string): boolean {
     const relevantEvents = [
       "orderPlacedEvent",
@@ -90,14 +74,10 @@ export class EventListener {
     return relevantEvents.includes(eventName);
   }
 
-  /**
-   * Stop listening to program logs
-   */
   async stop(): Promise<void> {
     if (this.logSubscriptionId !== null) {
       try {
         await this.connection.removeOnLogsListener(this.logSubscriptionId);
-        console.log("🔕 Unsubscribed from event logs");
         this.logSubscriptionId = null;
       } catch (error) {
         console.error("Error unsubscribing from logs:", error);
@@ -105,9 +85,6 @@ export class EventListener {
     }
   }
 
-  /**
-   * Fetch market state from chain
-   */
   async fetchMarketState(marketPubKey: string): Promise<Market | null> {
     try {
       const accountInfo = await this.connection.getAccountInfo(
@@ -125,28 +102,21 @@ export class EventListener {
 
       return marketData;
     } catch (error) {
-      console.error("❌ Error fetching market state:", error);
+      console.error("Error fetching market state:", error);
       return null;
     }
   }
 
-  /**
-   * Fetch ask slab (sell orders)
-   */
   async fetchAskSlabState(askSlabKey: string): Promise<Slab | null> {
-    return this.fetchSlabState(askSlabKey, "ask");
+   const bidData =  await this.fetchSlabState(askSlabKey, "ask");
+    return bidData
   }
 
-  /**
-   * Fetch bid slab (buy orders)
-   */
   async fetchBidSlabState(bidSlabKey: string): Promise<Slab | null> {
-    return this.fetchSlabState(bidSlabKey, "bid");
+    const bids = await this.fetchSlabState(bidSlabKey, "bid");
+    return bids
   }
 
-  /**
-   * Generic slab fetcher with error handling
-   */
   private async fetchSlabState(
     slabKey: string,
     side: "ask" | "bid"
@@ -157,28 +127,39 @@ export class EventListener {
       );
 
       if (!accountInfo) {
-        throw new Error(`${side} slab account not found`);
+        console.warn(`⚠️ ${side} slab account not found: ${slabKey}`);
+        return null;
       }
 
-      const slabData = this.program.coder.accounts.decode(
-        "slab",
-        accountInfo.data
-      );
+      if (!accountInfo.data) {
+        console.warn("Account has no data!", accountInfo.data);
+        return null;
+      }
+
+      let slabData;
+
+      try {
+        slabData =  this.program.coder.accounts.decode(
+          "slab",
+          accountInfo.data
+        );
+      } catch (decodeError: any) {
+        console.error(`❌ Decode error for ${side} slab:`, decodeError.message);
+        return null;
+      }
 
       if (!slabData) {
-        throw new Error(`Failed to decode ${side} slab data`);
+        console.warn(`⚠️ Failed to decode ${side} slab data`);
+        return null;
       }
-
+      
       return slabData;
-    } catch (error) {
-      console.error(`❌ Error fetching ${side} slab:`, error);
+    } catch (error: any) {
+      console.error(`❌ Error fetching ${side} slab:`, error.message);
       return null;
     }
   }
 
-  /**
-   * Fetch event queue state
-   */
   async fetchEventQueue(eventPubKey: string): Promise<EventQueue | null> {
     try {
       const accountInfo = await this.connection.getAccountInfo(
@@ -201,10 +182,6 @@ export class EventListener {
     }
   }
 
-  /**
-   * Subscribe to account changes
-   * Returns subscription ID for cleanup
-   */
   async subscribeToAccount(
     accountPubKey: string,
     callback: (accountInfo: AccountInfo<Buffer>) => void
@@ -222,21 +199,16 @@ export class EventListener {
       "confirmed"
     );
 
-    // Track subscription for cleanup
     this.accountSubscriptions.set(accountPubKey, subscriptionId);
 
     return subscriptionId;
   }
 
-  /**
-   * Unsubscribe from specific account
-   */
   async unsubscribeFromAccount(subscriptionId: number): Promise<void> {
     try {
       await this.connection.removeAccountChangeListener(subscriptionId);
-      console.log(`🔕 Unsubscribed: ${subscriptionId}`);
+      console.log(`Unsubscribed: ${subscriptionId}`);
 
-      // Remove from tracking
       for (const [key, id] of this.accountSubscriptions.entries()) {
         if (id === subscriptionId) {
           this.accountSubscriptions.delete(key);
@@ -248,16 +220,11 @@ export class EventListener {
     }
   }
 
-  /**
-   * Clean up all subscriptions
-   */
   async cleanup(): Promise<void> {
-    console.log("🧹 Cleaning up all subscriptions...");
+    console.log("Cleaning up all subscriptions...");
 
-    // Stop log subscription
     await this.stop();
 
-    // Unsubscribe from all account changes
     const unsubscribePromises = Array.from(
       this.accountSubscriptions.values()
     ).map((id) => this.unsubscribeFromAccount(id));
@@ -265,12 +232,9 @@ export class EventListener {
     await Promise.all(unsubscribePromises);
 
     this.accountSubscriptions.clear();
-    console.log("✅ Cleanup complete");
+    console.log("Cleanup complete");
   }
 
-  /**
-   * Get current connection health
-   */
   async getConnectionHealth(): Promise<{
     connected: boolean;
     slot: number | null;
