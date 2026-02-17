@@ -179,7 +179,3 @@ The service handles `SIGINT` and `SIGTERM`:
 * Persistent event replay and backfill
 
 ---
-
-## License
-
-MIT
