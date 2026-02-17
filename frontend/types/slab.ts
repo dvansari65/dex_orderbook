@@ -125,3 +125,11 @@ export interface OrderNode {
   owner: any;
   orderId: any;
 }
+
+export interface CandleSnapshot {
+  open: number,
+  close: number,
+  high: number,
+  low: number,
+  time: number
+}

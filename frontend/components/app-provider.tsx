@@ -6,11 +6,11 @@ import { ReactNode } from "react";
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   return (
     <SolanaWalletProvider>
-      <SocketProvider>
-        <ReactQueryProvider>
+      <ReactQueryProvider>
+        <SocketProvider>
           {children}
-        </ReactQueryProvider>
-      </SocketProvider>
+        </SocketProvider>
+      </ReactQueryProvider>
     </SolanaWalletProvider>
   )
 }

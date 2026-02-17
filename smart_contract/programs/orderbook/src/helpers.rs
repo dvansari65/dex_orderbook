@@ -230,24 +230,17 @@ impl OpenOrders {
 pub fn match_orders(
     side: Side,
     order: &mut Order,
-    asks: &mut Slab,
-    bids: &mut Slab,
+    opposite_slab: &mut Slab,
     market_pubkey: &Pubkey,
     event_queue: &mut EventQueue,
-) -> Result<u64> {
+) -> Result<()> {
     // 1. Identify the correct side to match against
-    let (opposite_slab,_same_sla) = match side {
-        Side::Ask => (bids,asks), // Sellers match with existing Bids
-        Side::Bid => (asks,bids), // Buyers match with existing Asks
-    };
     let mut total_quote_qty = 0u64;
-    let mut filled_qty = 0u64;
     // 2. Matching Loop
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
         let (fill_qty, execution_price, maker_id, maker_owner, maker_filled,quantity_remained) = {
             let best_opposite = opposite_slab.nodes.first_mut().unwrap();
-
             // 3. Price Cross Check
             // A match only happens if the Taker's price "crosses" the Maker's price.
             let can_match = match side {
@@ -259,7 +252,7 @@ pub fn match_orders(
             }
             let fill_qty = best_opposite.quantity.min(order.quantity);
             let execution_price = best_opposite.price; // Trade executes at the price already on the book
-
+            msg!("execution price is {}",execution_price.to_string());
             // Update quantities in place
             best_opposite.quantity = best_opposite
                 .quantity
@@ -285,7 +278,6 @@ pub fn match_orders(
             .checked_mul(execution_price)
             .ok_or(OrderError::OverFlow)?;
         // created this variable to return the filled quantity to get this qty in the instruction
-        filled_qty = fill_qty;
 
         total_quote_qty = total_quote_qty
             .checked_add(quote_qty)
@@ -346,7 +338,7 @@ pub fn match_orders(
     }else {
         order.order_status = OrderStatus::PartialFill;
     }
-    Ok(filled_qty)
+    Ok(())
 }
 
 pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<()> {

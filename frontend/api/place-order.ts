@@ -1,4 +1,4 @@
-import { MARKET_PUBKEY, MAX_BASE_SIZE } from "@/constants/market"
+import { MARKET_PUBKEY, MAX_BASE_SIZE, MAX_QUOTE_SIZE } from "@/constants/market"
 import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
 import { useDexProgram } from "@/hooks/useDexProgram"
 import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
@@ -42,16 +42,18 @@ export const PlaceOrder = () => {
         if(!openOrderPda){
           throw new Error("Open order not initialised!")
         }
-        const baseLotSize = market.data?.baseLotSize;
-        const quoteLotSize = market.data?.quoteLotSize;
+        
         const convertedBaseLots = MAX_BASE_SIZE * maxBaseSize;
-        const convertedQuoteLots = Math.floor((price * baseLotSize) / quoteLotSize);
-
-        const placeOrderTx = await program?.methods
+        if(!program){
+          console.log("Program not found!")
+          return;
+        }
+        // sending user's price at the smart contract , will convert it into quote lot 
+        const placeOrderTx = await program.methods
           .placeOrder(
             new BN(convertedBaseLots),
             new BN(clientOrderId),
-            new BN(convertedQuoteLots),
+            new BN(price),
             orderType,
             side
           )

@@ -524,7 +524,7 @@ export type Orderbook = {
           "type": "u64"
         },
         {
-          "name": "priceInQuoteLots",
+          "name": "price",
           "type": "u64"
         },
         {
@@ -722,33 +722,48 @@ export type Orderbook = {
   "errors": [
     {
       "code": 6000,
-      "name": "orderNotFound",
-      "msg": "Order not found in the Slab!"
+      "name": "balanceError",
+      "msg": "Insufficient balance"
     },
     {
       "code": 6001,
-      "name": "invalidQty",
-      "msg": "Invalid quantity!"
+      "name": "orderbookFull",
+      "msg": "Order book full!"
     },
     {
       "code": 6002,
-      "name": "invalidPrice",
-      "msg": "Invalid price!"
+      "name": "orderNotFound",
+      "msg": "order not found!"
     },
     {
       "code": 6003,
-      "name": "duplicateOrderId",
-      "msg": "Duplicate order id!"
+      "name": "orderFull",
+      "msg": "Orders exceeded!"
     },
     {
       "code": 6004,
-      "name": "invalidIndex",
-      "msg": "Invalid inserting index!"
+      "name": "noSpace",
+      "msg": "No free space for the order!"
     },
     {
       "code": 6005,
       "name": "underFlow",
       "msg": "Quantity underflow!"
+    },
+    {
+      "code": 6006,
+      "name": "overFlow",
+      "msg": "Quantity Overflow!"
+    },
+    {
+      "code": 6007,
+      "name": "invalidNode",
+      "msg": "Failed to get first order!"
+    },
+    {
+      "code": 6008,
+      "name": "wouldMatchImmediately",
+      "msg": "Order can be match , So rejecting the order!"
     }
   ],
   "types": [

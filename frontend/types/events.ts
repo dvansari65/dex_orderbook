@@ -96,3 +96,15 @@ export interface TimeInForceEvent {
   lastValidSlot: BN;
   lastValidUnixTimestampInSeconds: BN;
 }
+
+export interface OrderFillEventData {
+  maker:string,
+  makerOrderId: number;
+  taker: number;
+  takerOrderId: number;
+  side: "ask" | "bid";
+  price: number;
+  baseLotsFilled: number;
+  baseLotsRemaining: number;
+  timestamp: number;
+}
