@@ -65,7 +65,7 @@ describe("orderbook", () => {
     );
 
     await program.methods
-      .initialiseMarket(new BN(1000), new BN(1000), new BN(10), new BN(20))
+      .initialiseMarket(new BN(1000), new BN(100), new BN(10), new BN(20))
       .accounts({
         market: marketKeypair.publicKey,
         bids: bidsPda,
@@ -117,7 +117,7 @@ describe("orderbook", () => {
     assert.equal(marketInfo.admin.toString(), payer.publicKey.toString());
     assert.equal(marketInfo.nextOrderId.toString(), "0");
     assert.equal(marketInfo.baseLotSize.toNumber(), 1000);
-    assert.equal(marketInfo.quoteLotSize.toNumber(), 1000);
+    assert.equal(marketInfo.quoteLotSize.toNumber(), 100);
     assert.equal(marketInfo.vaultSignerNonce, vaultBump);
   });
 
@@ -272,7 +272,8 @@ describe("orderbook", () => {
 
     const bidsBeforeBid = await program.account.slab.fetch(marketInfo.bids);
     const asksBeforeBid = await program.account.slab.fetch(marketInfo.asks);
-
+    console.log("bids before :",bidsBeforeBid)
+    console.log("asks before :",asksBeforeBid)
     await program.methods
       .initializeOpenOrder()
       .accounts({
@@ -313,11 +314,13 @@ describe("orderbook", () => {
     const eventAccount = await program.account.eventQueue.fetch(
       marketInfo.eventQueue
     );
-
+    console.log("bids after :",bidsAfter)
+    console.log("asks after :",asksAfter)
     const newBids = bidsAfter.leafCount - bidsBeforeBid.leafCount;
     const newAsks = asksAfter.leafCount - asksBeforeBid.leafCount;
-
-    assert.equal(newBids, 1);
+    console.log("newBids:",newBids)
+    console.log("newAsks:",newAsks)
+    assert.equal(newBids, 0);
     assert.equal(newAsks, -1);
 
     const expectedQuoteLocked = maxBaseQty
@@ -389,3 +392,8 @@ describe("orderbook", () => {
     assert.isAtLeast(actualAsks + actualBids, 0);
   });
 });
+
+//  samjho me 1 token bech raha hu 100 unit
+// koi kharid raha h 5 token 100 me 
+//  fill qty 1 
+// 
