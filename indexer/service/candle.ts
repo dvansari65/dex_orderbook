@@ -1,133 +1,163 @@
-
-
 import { getBucketStart } from "../helper/getBucketStart";
 import prisma from "../lib/prisma"
-import { FillEvent, OrderFillEvent, OrderPartialFillEvent } from "../types/events"
-import { CandleSnapshot, HandleFillEventResponse } from "@/types/service";
-
-export const handleFillEvent = async (event: FillEvent): Promise<CandleSnapshot | undefined> => {
-    const { timestamp, price, maker, taker, baseLotsFilled, signature, side, marketPubkey } = event;
-
-    console.log("side raw value:", side, "type:", typeof side);
-    if (!timestamp || !price || !maker || !taker || !baseLotsFilled || !signature) {
-        throw new Error("Fields are missing!")
-    }
-    if (!marketPubkey) {
-        throw new Error("Market pub key not found!")
-    }
-    if (!baseLotsFilled) {
-        throw new Error("Base lots not provided!")
-    }
-    try {
-        const priceStr = price.toString();
-        const quantityStr = baseLotsFilled.toString();
-        const timestampMs = timestamp.toNumber() * 1000;
-        await prisma.trade.create({
-            data: {
-                signature: signature,
-                price: priceStr,
-                timestamp: new Date(timestampMs),
-                marketAddress: maker.toString(),
-                quantity: quantityStr,
-                side: side as string
-            }
-        })
-        const resolutions = ['1m', '5m', '1h', '1d'];
-
-        for (const resolution of resolutions) {
-            const bucketStart = getBucketStart(new Date(timestamp.toNumber()), resolution);
-
-            const existingCandle = await prisma.candle.findUnique({
-                where: {
-                    marketAddress_resolution_timestamp: {
-                        marketAddress: marketPubkey.toString(),
-                        timestamp: bucketStart,
-                        resolution: resolution
-                    }
-                }
-            })
-            if (existingCandle) {
-                const currentHigh = parseFloat(existingCandle.high.toString());
-                const currentLow = parseFloat(existingCandle.low.toString());
-                const currentVolume = parseFloat(existingCandle.volume.toString())
-                const priceNum = price.toNumber()
-                const updatedCandle = await prisma.candle.update({
-                    where: {
-                        id: existingCandle.id
-                    },
-                    data: {
-                        high: priceNum > currentHigh ? priceNum : currentHigh,
-                        low: priceNum < currentLow ? priceNum : currentLow,
-                        close: priceNum,
-                        volume: (currentVolume + baseLotsFilled?.toNumber()).toString()
-                    }
-                })
-                console.log("updated candle:",updatedCandle)
-                const payload:CandleSnapshot = {
-                    high:updatedCandle.high?.toNumber(),
-                    low:updatedCandle.low?.toNumber(),
-                    open:updatedCandle?.open?.toNumber(),
-                    close:updatedCandle?.close.toNumber(),
-                    time:Number(updatedCandle?.timestamp)
-                  }
-                return payload;
-            } else {
-                const createdCandle = await prisma.candle.create({
-                    data: {
-                        marketAddress: marketPubkey?.toString(),
-                        resolution,
-                        timestamp: bucketStart,
-                        open: price,
-                        high: price,
-                        low: price,
-                        close: price,
-                        volume: baseLotsFilled?.toNumber()
-                    }
-                })
-                console.log("created candle:",createdCandle)
-                const payload:CandleSnapshot = {
-                    high:createdCandle.high?.toNumber(),
-                    low:createdCandle.low?.toNumber(),
-                    open:createdCandle?.open?.toNumber(),
-                    close:createdCandle?.close.toNumber(),
-                    time:Number(createdCandle?.timestamp)
-                  }
-                return payload;
-            }
-        }
-    } catch (error) {
-        console.error("error:", error)
-        return
-    }
+import { FillEvent } from "../types/events"
+import { CandleSnapshot } from "../types/service";
+import {formatTimeForResolution} from "../helper/formatTimeForReso"
+// Define return type with volume
+interface FillEventResult {
+  candle: CandleSnapshot;
+  volume: number;  // Current volume after this trade
+  timestamp: string; // ISO string for time
 }
 
+export const handleFillEvent = async (
+  event: FillEvent, 
+  sign: string
+): Promise<FillEventResult | undefined> => {
+  const { timestamp, price, maker, taker, baseLotsFilled, side, marketPubkey } = event;
+  
+  // Validate required fields
+  if (!timestamp || !price || !maker || !taker || !baseLotsFilled || !sign || !marketPubkey) {
+    console.error("Missing required fields in fill event", { 
+      timestamp, price, maker, taker, baseLotsFilled, sign, marketPubkey 
+    });
+    return undefined;
+  }
 
+  const sideStr = 'ask' in (side as any) ? 'ask' : 'bid';
+  
+  try {
+    const timestampMs = timestamp.toNumber() * 1000;
+    const tradeDate = new Date(timestampMs);
+    const marketAddress = marketPubkey.toString();
+
+    // Upsert trade - avoid duplicate signature errors
+    await prisma.trade.upsert({
+      where: { signature: sign },
+      update: {},
+      create: {
+        signature: sign,
+        price: price.toString(),
+        timestamp: tradeDate,
+        marketAddress: marketAddress,
+        quantity: baseLotsFilled.toString(),
+        side: sideStr
+      }
+    });
+
+    const resolutions = ['1m', '5m', '1h', '1d'];
+    let result: FillEventResult | undefined;
+
+    for (const resolution of resolutions) {
+      const bucketStart = getBucketStart(tradeDate, resolution);
+      
+      const existingCandle = await prisma.candle.findUnique({
+        where: {
+          marketAddress_resolution_timestamp: {
+            marketAddress: marketAddress,
+            timestamp: bucketStart,
+            resolution: resolution
+          }
+        }
+      });
+
+      const priceNum = price.toNumber();
+      const volumeNum = baseLotsFilled.toNumber(); // This trade's volume
+      console.log("base lots filled:",baseLotsFilled.toNumber())
+      let candle;
+      let newVolume: number;
+
+      if (existingCandle) {
+        const currentHigh = Number(existingCandle.high);
+        const currentLow = Number(existingCandle.low);
+        const currentVolume = Number(existingCandle.volume);
+        
+        // NEW VOLUME = existing volume + this trade's volume
+        newVolume = currentVolume + volumeNum;
+
+        candle = await prisma.candle.update({
+          where: { id: existingCandle.id },
+          data: {
+            high: Math.max(priceNum, currentHigh),
+            low: Math.min(priceNum, currentLow),
+            close: priceNum,
+            volume: newVolume  // Updated volume
+          }
+        });
+      } else {
+        // First trade in this time bucket
+        newVolume = volumeNum; // Starting volume = this trade's volume
+        
+        candle = await prisma.candle.create({
+          data: {
+            marketAddress: marketAddress,
+            resolution,
+            timestamp: bucketStart,
+            open: priceNum,
+            high: priceNum,
+            low: priceNum,
+            close: priceNum,
+            volume: newVolume
+          }
+        });
+      }
+
+      // Return only 1m candle for real-time updates
+      if (resolution === '1m') {
+        result = {
+          candle: {
+            high: Number(candle.high),
+            low: Number(candle.low),
+            open: Number(candle.open),
+            close: Number(candle.close),
+            time: formatTimeForResolution(candle.timestamp, resolution),
+          },
+          volume: newVolume,  // Current total volume for this time bucket
+          timestamp: candle.timestamp.toISOString()
+        };
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Error handling fill event:", error);
+    return undefined;
+  }
+}
 
 export const snapshotOfCandle = async (
-    resolution: string = "1d",
-    marketPubKey: string
-): Promise<CandleSnapshot[] | undefined[]> => {
-    try {
-        const candles = await prisma.candle.findMany({
-            where: {
-                marketAddress: marketPubKey,
-                resolution
-            },
-            orderBy: {
-                timestamp: "asc"
-            },
-            take: 500
-        })
-        return candles.map(c => ({
-            time: Math.floor(c.timestamp.getTime() / 1000),
-            open: parseFloat(c.open.toString()),
-            high: parseFloat(c.high.toString()),
-            low: parseFloat(c.low.toString()),
-            close: parseFloat(c.close.toString()),
-        }))
-    } catch (error) {
-        console.error("error:", error)
-        return []
-    }
-}
+  resolution: string,
+  marketPubKey: string
+): Promise<{
+  candles: CandleSnapshot[],
+  volumeData: { time: string, value: number }[]
+}> => {
+  try {
+    
+    const candles = await prisma.candle.findMany({
+      where: { 
+        marketAddress: marketPubKey, 
+        resolution: resolution
+      },
+      orderBy: { timestamp: "asc" },
+      take: 500
+    });
 
+    return {
+      candles: candles.map(c => ({
+        time: c.timestamp.toISOString().split("T")[0],
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+      })),
+      volumeData: candles.map(c => ({
+        time: c.timestamp.toISOString().split("T")[0],
+        value: Number(c.volume) / 1000  // Adjust divisor as needed
+      }))
+    };
+  } catch (error) {
+    console.error("Error fetching candle snapshot:", error);
+    return { candles: [], volumeData: [] };
+  }
+}
