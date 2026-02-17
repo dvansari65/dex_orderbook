@@ -25,7 +25,7 @@ export class Conversion {
 
     convertNode(node: any):convertNodeOutputType {
         return {
-          price: node.price instanceof BN ? node.price.toNumber() : Number(node.price),
+          price: node.price instanceof BN ? node.price.toNumber()/10 : Number(node.price)/10,
           quantity: this.quantityToHuman(node.quantity instanceof BN ? node.quantity.toNumber() : node.quantity),
           orderId: node.orderId instanceof BN ? node?.orderId.toNumber() : Number(node?.orderId)
         };
