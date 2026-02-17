@@ -88,7 +88,7 @@ pub mod orderbook {
         ctx: Context<PlaceOrder>,
         max_base_size: u64,
         client_order_id: u64,
-        price_in_quote_lots: u64,
+        price: u64,
         order_type: OrderType,
         side: Side,
     ) -> Result<()> {
@@ -103,7 +103,7 @@ pub mod orderbook {
             "order size which is obtain from user:{}",
             market.min_order_size
         );
-        msg!("price in quote lots:{:?}", price_in_quote_lots);
+
         market.next_order_id = market
             .next_order_id
             .checked_add(1)
@@ -114,9 +114,11 @@ pub mod orderbook {
             max_base_size >= market.min_order_size,
             MarketError::MarketOrderSizeError
         );
-
+        msg!("price in quote lots:{:?}", price);
+        msg!("base size:{:?}", max_base_size);
+        // max base size the qty user wants to buy
         let base_lots = max_base_size / market.base_lot_size;
-
+        let quote_lots = (price * market.base_lot_size) / market.quote_lot_size;
         let mut created_order = Order {
             order_type,
             side,
@@ -124,13 +126,13 @@ pub mod orderbook {
             owner: owner.key(),
             order_id,
             client_order_id,
-            price: price_in_quote_lots,
+            price: quote_lots,
             order_status: OrderStatus::PartialFill,
         };
 
         match side {
             Side::Bid => {
-                let amount_to_lock = price_in_quote_lots
+                let amount_to_lock = quote_lots
                     .checked_mul(base_lots)
                     .ok_or(MarketError::MathOverflow)?
                     .checked_mul(market.quote_lot_size)
@@ -177,6 +179,7 @@ pub mod orderbook {
                 let amount_to_lock = base_lots
                     .checked_mul(market.base_lot_size)
                     .ok_or(MarketError::MathOverflow)?;
+
                 require!(
                     ctx.accounts.user_base_vault.amount >= amount_to_lock,
                     MarketError::InsufficientBaseBalance
@@ -213,43 +216,41 @@ pub mod orderbook {
             order_id,
             client_order_id,
             side,
-            price_in_quote_lots,
+            price,
             base_lots,
         )?;
         let (asks, bids) = (&mut ctx.accounts.asks, &mut ctx.accounts.bids);
+        let (same_slab, opposite_slab) = match side {
+            Side::Ask => (asks, bids),
+            Side::Bid => (bids, asks),
+        };
         match order_type {
             OrderType::Limit => {
                 match_orders(
                     side,
                     &mut created_order,
-                    asks,
-                    bids,
+                    opposite_slab,
                     &market_pubkey,
                     event_queue,
                 )?;
                 if created_order.quantity > 0 {
-                    Slab::insert_order(
-                        asks,
+                    same_slab.insert_order(
                         order_id,
                         &order_type,
                         base_lots,
                         ctx.accounts.owner.key(),
-                        price_in_quote_lots,
+                        quote_lots,
                         OrderStatus::PartialFill,
                         client_order_id,
                         &market_pubkey,
                         side,
                     )?;
+                    msg!("Order inserted into slab!")
                 }
             }
             OrderType::PostOnly => {
-                match_post_only_orders(asks, bids, side, &created_order)?;
-                // After confirming it won't cross, INSERT to book
-                let target_slab = match side {
-                    Side::Ask => asks,
-                    Side::Bid => bids,
-                };
-                target_slab.insert_order(
+                match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
+                same_slab.insert_order(
                     created_order.order_id,
                     &created_order.order_type,
                     created_order.quantity,
@@ -262,7 +263,7 @@ pub mod orderbook {
                 )?;
             }
             OrderType::ImmediateOrCancel => {
-                match_ioc_orders(asks, bids, side, &mut created_order, &market_pubkey)?;
+                match_ioc_orders(same_slab, opposite_slab, side, &mut created_order, &market_pubkey)?;
             }
         }
 
@@ -271,8 +272,6 @@ pub mod orderbook {
             .next_order_id
             .checked_add(1)
             .ok_or(MarketError::OrderIdOverFlow)?;
-
-        msg!("price after placing the order:{:?}", price_in_quote_lots);
         msg!("order pushed : {:?} into the open order:", pushed_order);
         Ok(())
     }
