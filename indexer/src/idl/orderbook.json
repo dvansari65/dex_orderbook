@@ -518,7 +518,7 @@
           "type": "u64"
         },
         {
-          "name": "price_in_quote_lots",
+          "name": "price",
           "type": "u64"
         },
         {
@@ -716,38 +716,58 @@
   "errors": [
     {
       "code": 6000,
-      "name": "BalanceError",
-      "msg": "Insufficient balance"
+      "name": "MarketActiveError",
+      "msg": "Market is paused!"
     },
     {
       "code": 6001,
-      "name": "OrderbookFull",
-      "msg": "Order book full!"
+      "name": "MarketOrderSizeError",
+      "msg": "Max base size should be greater than minimum order size!"
     },
     {
       "code": 6002,
-      "name": "OrderNotFound",
-      "msg": "order not found!"
+      "name": "MathOverflow",
+      "msg": "Value overflowed!"
     },
     {
       "code": 6003,
-      "name": "OrderFull",
-      "msg": "Orders exceeded!"
+      "name": "NoOrders",
+      "msg": "No orders"
     },
     {
       "code": 6004,
-      "name": "NoSpace",
-      "msg": "No free space for the order!"
+      "name": "OrderIdOverFlow",
+      "msg": "Order id overflow!"
     },
     {
       "code": 6005,
-      "name": "UnderFlow",
-      "msg": "Quantity underflow!"
+      "name": "InsufficientQuoteBalance",
+      "msg": "insufficient balance!"
     },
     {
       "code": 6006,
-      "name": "OverFlow",
-      "msg": "Quantity Overflow!"
+      "name": "InsufficientBaseBalance",
+      "msg": "insufficient balance!"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidTokenAccountOwner",
+      "msg": "Invalid token owner!"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidTokenMint",
+      "msg": "Invalid token Mint!"
+    },
+    {
+      "code": 6009,
+      "name": "DestinationVaultUninitialized",
+      "msg": "Destination vault is uninitialise!"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidMarketAccount",
+      "msg": "Invalid market account!"
     }
   ],
   "types": [
@@ -1241,6 +1261,10 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "market_pubkey",
+            "type": "pubkey"
           }
         ]
       }
@@ -1289,6 +1313,10 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "market_pubkey",
+            "type": "pubkey"
           }
         ]
       }
@@ -1394,6 +1422,9 @@
           },
           {
             "name": "PartialFill"
+          },
+          {
+            "name": "Open"
           }
         ]
       }
@@ -1463,6 +1494,10 @@
           {
             "name": "timestamp",
             "type": "i64"
+          },
+          {
+            "name": "market_pubkey",
+            "type": "pubkey"
           }
         ]
       }
