@@ -35,7 +35,7 @@ export const OrderEvent = async (event: any, io: Server, Market: Market | null, 
                 taker:event?.data?.taker?.toString(),
                 takerOrderId:event?.data?.takerOrderId?.toNumber(),
                 side:side,
-                price:event?.data?.price?.toNumber(),
+                price:event?.data?.price?.toNumber()/10,
                 baseLotsFilled:event?.data?.baseLotsFilled?.toNumber()/1000,
                 baseLotsRemaining:event?.data?.baseLotsRemaining.toNumber()/1000,
                 timestamp:event?.data?.timestamp.toNumber()
