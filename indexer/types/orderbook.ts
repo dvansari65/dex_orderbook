@@ -524,7 +524,7 @@ export type Orderbook = {
           "type": "u64"
         },
         {
-          "name": "priceInQuoteLots",
+          "name": "price",
           "type": "u64"
         },
         {
@@ -722,33 +722,58 @@ export type Orderbook = {
   "errors": [
     {
       "code": 6000,
-      "name": "orderNotFound",
-      "msg": "Order not found in the Slab!"
+      "name": "marketActiveError",
+      "msg": "Market is paused!"
     },
     {
       "code": 6001,
-      "name": "invalidQty",
-      "msg": "Invalid quantity!"
+      "name": "marketOrderSizeError",
+      "msg": "Max base size should be greater than minimum order size!"
     },
     {
       "code": 6002,
-      "name": "invalidPrice",
-      "msg": "Invalid price!"
+      "name": "mathOverflow",
+      "msg": "Value overflowed!"
     },
     {
       "code": 6003,
-      "name": "duplicateOrderId",
-      "msg": "Duplicate order id!"
+      "name": "noOrders",
+      "msg": "No orders"
     },
     {
       "code": 6004,
-      "name": "invalidIndex",
-      "msg": "Invalid inserting index!"
+      "name": "orderIdOverFlow",
+      "msg": "Order id overflow!"
     },
     {
       "code": 6005,
-      "name": "underFlow",
-      "msg": "Quantity underflow!"
+      "name": "insufficientQuoteBalance",
+      "msg": "insufficient balance!"
+    },
+    {
+      "code": 6006,
+      "name": "insufficientBaseBalance",
+      "msg": "insufficient balance!"
+    },
+    {
+      "code": 6007,
+      "name": "invalidTokenAccountOwner",
+      "msg": "Invalid token owner!"
+    },
+    {
+      "code": 6008,
+      "name": "invalidTokenMint",
+      "msg": "Invalid token Mint!"
+    },
+    {
+      "code": 6009,
+      "name": "destinationVaultUninitialized",
+      "msg": "Destination vault is uninitialise!"
+    },
+    {
+      "code": 6010,
+      "name": "invalidMarketAccount",
+      "msg": "Invalid market account!"
     }
   ],
   "types": [
