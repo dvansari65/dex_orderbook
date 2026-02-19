@@ -137,3 +137,13 @@ pub struct EventQueue {
     #[max_len(32)]
     pub events: Vec<QueueEvent>,
 }
+
+
+pub struct MatchResult {
+    pub maker_qty:u64 , // this is maker's remained qty after order matching
+    pub taker_qty:u64,  // this is taker's remained qty after order matching
+}
+pub enum MatchOutcome {
+    NoMatch(&'static str),   // reason why no match happened
+    Matched(MatchResult),     // actual result
+}
