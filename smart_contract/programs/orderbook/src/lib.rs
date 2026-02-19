@@ -83,7 +83,6 @@ pub mod orderbook {
 
         Ok(())
     }
-
     pub fn place_order(
         ctx: Context<PlaceOrder>,
         max_base_size: u64,
@@ -226,47 +225,71 @@ pub mod orderbook {
         };
         match order_type {
             OrderType::Limit => {
-                match_orders(
+              let result =  match_orders(
                     side,
                     &mut created_order,
                     opposite_slab,
                     &market_pubkey,
                     event_queue,
                 )?;
-                if created_order.quantity > 0 {
-                    same_slab.insert_order(
-                        order_id,
-                        &order_type,
-                        base_lots,
-                        ctx.accounts.owner.key(),
-                        quote_lots,
-                        OrderStatus::PartialFill,
-                        client_order_id,
-                        &market_pubkey,
-                        side,
-                    )?;
-                    msg!("Order inserted into slab!")
+                match result {
+                    MatchOutcome::Matched(result)=>{
+                        if result.taker_qty > 0 {
+                            same_slab.insert_order(
+                                order_id,
+                                &order_type,
+                                base_lots,
+                                ctx.accounts.owner.key(),
+                                quote_lots,
+                                OrderStatus::PartialFill,
+                                client_order_id,
+                                &market_pubkey,
+                                side,
+                            )?;
+                        }
+                    }
+                    MatchOutcome::NoMatch(msg)=>{
+                        msg!(msg);
+                    }
                 }
             }
             OrderType::PostOnly => {
-                match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
-                same_slab.insert_order(
-                    created_order.order_id,
-                    &created_order.order_type,
-                    created_order.quantity,
-                    created_order.owner,
-                    created_order.price,
-                    OrderStatus::Open,
-                    created_order.client_order_id,
-                    &market_pubkey,
-                    side,
-                )?;
+                let result = match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
+                match result {
+                    MatchOutcome::NoMatch(msg)=>{
+                        msg!(msg)
+                    }
+                    MatchOutcome::Matched(_result)=>{
+                    msg!("This is post only order type , orders doesnt get matched, it provides liquidity!");
+                    same_slab.insert_order(
+                        created_order.order_id,
+                        &created_order.order_type,
+                        created_order.quantity,
+                        created_order.owner,
+                        created_order.price,
+                        OrderStatus::Open,
+                        created_order.client_order_id,
+                        &market_pubkey,
+                        side,
+                    )?;
+                   }
+                }
             }
             OrderType::ImmediateOrCancel => {
-                match_ioc_orders(same_slab, opposite_slab, side, &mut created_order, &market_pubkey)?;
+               let result =  match_ioc_orders(same_slab, opposite_slab, side, &mut created_order, &market_pubkey)?;
+                match result {
+                    MatchOutcome::Matched(outcome)=>{
+                        if outcome.taker_qty > 0 {
+                           msg!("As this is IOC order type , it will not inserted into")
+                        }
+                        // todo: move assets back to the user which is not get filled as this IOC order type
+                    }
+                    MatchOutcome::NoMatch(msg)=>{
+                        msg!(msg)
+                    }
+               }
             }
         }
-
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
         market.next_order_id = market
             .next_order_id
@@ -302,7 +325,6 @@ pub mod orderbook {
                 order.order_type,
             )
         };
-
         match side {
             Side::Ask => {
                 let locked_base = quantity;
