@@ -32,7 +32,7 @@ function SwappingInterface() {
       setVisible(true)
       return
     }
-    if (!price || !size) {
+    if (!price || !size || isNaN(price) || isNaN(size)) {
       alert('Please enter price and size')
       return
     }
