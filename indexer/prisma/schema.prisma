@@ -18,7 +18,7 @@ model Trade {
   signature     String @unique
   marketAddress String 
   price         Decimal @db.Decimal(28,6) 
-  quantity       Decimal  @db.Decimal(28, 9)
+  quantity      Decimal  @db.Decimal(28, 9)
   side          String
   timestamp     DateTime @default(now())
   @@index([marketAddress,timestamp])
@@ -36,4 +36,39 @@ model Candle {
   volume         Decimal  @db.Decimal(28, 9)
   // Prevents duplicate candles for the same time bucket
   @@unique([marketAddress, resolution, timestamp])
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  
+  // From OrderPlacedEvent
+  orderId       String   @unique      // u64 → store as String to avoid BigInt issues
+  clientOrderId String               // client_order_id
+  marketAddress String               // market pubkey
+  ownerAddress  String               // owner pubkey
+  side          String               // "bid" or "ask"
+  price         Int  
+  baseLots      Int    // original quantity
+  
+  // Updated by FillEvent
+  filledLots    Int  @default(0)
+  
+  // Updated by OrderCancelledEvent
+  status        String   @default("open")  // "open" | "partial" | "filled" | "cancelled"
+  
+  // Timestamps
+  placedAt      DateTime              // from OrderPlacedEvent.timestamp
+  cancelledAt   DateTime?             // from OrderCancelledEvent.timestamp (nullable)
+  createdAt     DateTime @default(now())
+
+  @@index([ownerAddress, marketAddress])
+  @@index([marketAddress, status])
+  @@index([orderId])
+}
+
+enum OrderStatus {
+  Open
+  Partial
+  filled
+  Cancelled
 }
