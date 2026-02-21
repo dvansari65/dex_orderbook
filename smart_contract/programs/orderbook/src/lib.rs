@@ -107,8 +107,8 @@ pub mod orderbook {
             .next_order_id
             .checked_add(1)
             .ok_or(MarketError::OrderIdOverFlow)?;
-        require!(market.market_status == 1, MarketError::MarketActiveError);
 
+        require!(market.market_status == 1, MarketError::MarketActiveError);
         require!(
             max_base_size >= market.min_order_size,
             MarketError::MarketOrderSizeError
@@ -117,7 +117,11 @@ pub mod orderbook {
         msg!("base size:{:?}", max_base_size);
         // max base size the qty user wants to buy
         let base_lots = max_base_size / market.base_lot_size;
-        let quote_lots = (price * market.base_lot_size) / market.quote_lot_size;
+        // 100.2 , 100.2* 1000000 = 100200000/1000 , quote lots = 100200
+        let quote_lots = price
+            .checked_div(market.quote_lot_size)
+            .ok_or(MarketError::MathOverflow)?;
+        
         let mut created_order = Order {
             order_type,
             side,
@@ -215,7 +219,7 @@ pub mod orderbook {
             order_id,
             client_order_id,
             side,
-            price,
+            quote_lots,
             base_lots,
         )?;
         let (asks, bids) = (&mut ctx.accounts.asks, &mut ctx.accounts.bids);
@@ -225,7 +229,7 @@ pub mod orderbook {
         };
         match order_type {
             OrderType::Limit => {
-              let result =  match_orders(
+                let result = match_orders(
                     side,
                     &mut created_order,
                     opposite_slab,
@@ -233,7 +237,7 @@ pub mod orderbook {
                     event_queue,
                 )?;
                 match result {
-                    MatchOutcome::Matched(result)=>{
+                    MatchOutcome::Matched(result) => {
                         if result.taker_qty > 0 {
                             same_slab.insert_order(
                                 order_id,
@@ -248,46 +252,53 @@ pub mod orderbook {
                             )?;
                         }
                     }
-                    MatchOutcome::NoMatch(msg)=>{
+                    MatchOutcome::NoMatch(msg) => {
                         msg!(msg);
                     }
                 }
             }
             OrderType::PostOnly => {
-                let result = match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
+                let result =
+                    match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
                 match result {
-                    MatchOutcome::NoMatch(msg)=>{
+                    MatchOutcome::NoMatch(msg) => {
                         msg!(msg)
                     }
-                    MatchOutcome::Matched(_result)=>{
-                    msg!("This is post only order type , orders doesnt get matched, it provides liquidity!");
-                    same_slab.insert_order(
-                        created_order.order_id,
-                        &created_order.order_type,
-                        created_order.quantity,
-                        created_order.owner,
-                        created_order.price,
-                        OrderStatus::Open,
-                        created_order.client_order_id,
-                        &market_pubkey,
-                        side,
-                    )?;
-                   }
+                    MatchOutcome::Matched(_result) => {
+                        msg!("This is post only order type , orders doesnt get matched, it provides liquidity!");
+                        same_slab.insert_order(
+                            created_order.order_id,
+                            &created_order.order_type,
+                            created_order.quantity,
+                            created_order.owner,
+                            created_order.price,
+                            OrderStatus::Open,
+                            created_order.client_order_id,
+                            &market_pubkey,
+                            side,
+                        )?;
+                    }
                 }
             }
             OrderType::ImmediateOrCancel => {
-               let result =  match_ioc_orders(same_slab, opposite_slab, side, &mut created_order, &market_pubkey)?;
+                let result = match_ioc_orders(
+                    same_slab,
+                    opposite_slab,
+                    side,
+                    &mut created_order,
+                    &market_pubkey,
+                )?;
                 match result {
-                    MatchOutcome::Matched(outcome)=>{
+                    MatchOutcome::Matched(outcome) => {
                         if outcome.taker_qty > 0 {
-                           msg!("As this is IOC order type , it will not inserted into")
+                            msg!("As this is IOC order type , it will not inserted into")
                         }
                         // todo: move assets back to the user which is not get filled as this IOC order type
                     }
-                    MatchOutcome::NoMatch(msg)=>{
+                    MatchOutcome::NoMatch(msg) => {
                         msg!(msg)
                     }
-               }
+                }
             }
         }
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
