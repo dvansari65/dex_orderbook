@@ -1,3 +1,5 @@
+import { Side } from "./events";
+
 // Market
 export interface Market {
   baseMint: string;
@@ -91,10 +93,6 @@ export enum OrderType {
   PostOnly = 2,
 }
 
-export enum Side {
-  Bid = 0,
-  Ask = 1,
-}
 
 // UI/Display types
 export interface MarketState {
