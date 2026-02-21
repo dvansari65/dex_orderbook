@@ -65,7 +65,7 @@ describe("orderbook", () => {
     );
 
     await program.methods
-      .initialiseMarket(new BN(1000), new BN(100), new BN(10), new BN(20))
+      .initialiseMarket(new BN(1000), new BN(1000), new BN(10), new BN(20))
       .accounts({
         market: marketKeypair.publicKey,
         bids: bidsPda,
@@ -117,7 +117,7 @@ describe("orderbook", () => {
     assert.equal(marketInfo.admin.toString(), payer.publicKey.toString());
     assert.equal(marketInfo.nextOrderId.toString(), "0");
     assert.equal(marketInfo.baseLotSize.toNumber(), 1000);
-    assert.equal(marketInfo.quoteLotSize.toNumber(), 100);
+    assert.equal(marketInfo.quoteLotSize.toNumber(), 1000);
     assert.equal(marketInfo.vaultSignerNonce, vaultBump);
   });
 
