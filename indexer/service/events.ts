@@ -2,7 +2,8 @@ import { Market } from "../types/market";
 import { Conversion } from "../src/utils/conversion";
 import { Server, Socket } from "socket.io";
 import { handleFillEvent } from "./candle";
-import { OrderFillEventData } from "@/types/events";
+import parseOrderFillEvent from "../helper/parseOrderFillEventData"
+import { createOrder } from "./orderHistory";
 
 export const OrderEvent = async (event: any, io: Server, Market: Market | null, socket: Socket) => {
     if (!Market) {
@@ -23,25 +24,13 @@ export const OrderEvent = async (event: any, io: Server, Market: Market | null, 
         };
         
         if (event.name === "orderPlacedEvent") {
-            console.log("order place price:",event?.data?.price?.toNumber())
+            await createOrder(event?.data);
             io.emit("order:placed", payload);
         }
         if(event.name == "orderFillEvent" || event.name === "orderPartialFillEvent"){
-            const side = event?.data?.side && "bid" in event?.data?.side ? "bid" : "ask"
-
-            const orderFilledEventData:OrderFillEventData = {
-                maker:event?.data?.maker?.toString(),
-                makerOrderId:event?.data?.makerOrderId?.toNumber(),
-                taker:event?.data?.taker?.toString(),
-                takerOrderId:event?.data?.takerOrderId?.toNumber(),
-                side:side,
-                price:event?.data?.price?.toNumber()/10,
-                baseLotsFilled:event?.data?.baseLotsFilled?.toNumber()/1000,
-                baseLotsRemaining:event?.data?.baseLotsRemaining.toNumber()/1000,
-                timestamp:event?.data?.timestamp.toNumber()
-            }
-            console.log("orderFilledEventData:",orderFilledEventData)
+            const orderFilledEventData = parseOrderFillEvent(event)
             io.emit("order:filled", orderFilledEventData);
+
             const fillResult = await handleFillEvent(event?.data, event?.signature);
             if (!fillResult) {
                 io.emit("error", { message: "Failed to create candle for order fill event!" });
