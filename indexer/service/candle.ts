@@ -1,21 +1,20 @@
 import { getBucketStart } from "../helper/getBucketStart";
-import prisma from "../lib/prisma"
 import { FillEvent } from "../types/events"
+import prisma from "../lib/prisma"
 import { CandleSnapshot } from "../types/service";
 import {formatTimeForResolution} from "../helper/formatTimeForReso"
+import {updateOrdersOnFill} from "../helper/updateOrderOnFill"
 // Define return type with volume
 interface FillEventResult {
   candle: CandleSnapshot;
   volume: number;  // Current volume after this trade
   timestamp: string; // ISO string for time
 }
-
 export const handleFillEvent = async (
   event: FillEvent, 
   sign: string
 ): Promise<FillEventResult | undefined> => {
-  const { timestamp, price, maker, taker, baseLotsFilled, side, marketPubkey } = event;
-  
+  const { timestamp, price, maker,makerOrderId, taker,takerOrderId, baseLotsFilled, side, marketPubkey } = event
   // Validate required fields
   if (!timestamp || !price || !maker || !taker || !baseLotsFilled || !sign || !marketPubkey) {
     console.error("Missing required fields in fill event", { 
@@ -25,7 +24,6 @@ export const handleFillEvent = async (
   }
 
   const sideStr = 'ask' in (side as any) ? 'ask' : 'bid';
-  
   try {
     const timestampMs = timestamp.toNumber() * 1000;
     const tradeDate = new Date(timestampMs);
@@ -44,6 +42,8 @@ export const handleFillEvent = async (
         side: sideStr
       }
     });
+    // updating order
+    await updateOrdersOnFill(makerOrderId,takerOrderId,baseLotsFilled)
 
     const resolutions = ['1m', '5m', '1h', '1d'];
     let result: FillEventResult | undefined;
