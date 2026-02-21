@@ -95,9 +95,9 @@ pub struct Order {
 pub enum OrderStatus {
     Fill = 1,
     PartialFill = 2,
-    Open = 3
+    Open = 3,
+    Cancel = 4
 }
-
 
 // Event queue structures for on-chain storage
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug, PartialEq, Eq)]
