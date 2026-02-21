@@ -25,7 +25,7 @@ export class Conversion {
 
     convertNode(node: any):convertNodeOutputType {
         return {
-          price: node.price instanceof BN ? node.price.toNumber()/10 : Number(node.price)/10,
+          price: node.price instanceof BN ? node.price.toNumber()/1000 : Number(node.price)/1000,
           quantity: this.quantityToHuman(node.quantity instanceof BN ? node.quantity.toNumber() : node.quantity),
           orderId: node.orderId instanceof BN ? node?.orderId.toNumber() : Number(node?.orderId)
         };
@@ -33,7 +33,7 @@ export class Conversion {
     convertEvent(event:any):convertEventOutput{
         const side = event.side && "bid" in  event?.side ? Side.Bid : Side.Ask;
         return {
-            price:event?.price?.toNumber(),
+            price:event?.price?.toNumber()/1000,
             side,
             quantity:event?.baseLots?.toNumber()/1000 ,
             timestamp:event?.timestamp?.toNumber(),
