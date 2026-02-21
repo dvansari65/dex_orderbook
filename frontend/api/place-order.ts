@@ -44,6 +44,7 @@ export const PlaceOrder = () => {
         }
         
         const convertedBaseLots = MAX_BASE_SIZE * maxBaseSize;
+        const convertedQuotePrice = MAX_QUOTE_SIZE * price
         if(!program){
           console.log("Program not found!")
           return;
@@ -53,7 +54,7 @@ export const PlaceOrder = () => {
           .placeOrder(
             new BN(convertedBaseLots),
             new BN(clientOrderId),
-            new BN(price),
+            new BN(convertedQuotePrice),
             orderType,
             side
           )
