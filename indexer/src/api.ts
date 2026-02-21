@@ -6,10 +6,9 @@ import dotenv from "dotenv";
 import { EventListener } from "./listener";
 import { Conversion } from "./utils/conversion";
 import { Market } from "../types/market";
-import { handleFillEvent, snapshotOfCandle } from '../service/candle';
-import { BN } from "@coral-xyz/anchor";
+import { snapshotOfCandle } from '../service/candle';
 import { OrderEvent } from "../service/events";
-
+import {getOrderHistory} from "../service/orderHistory"
 
 
 dotenv.config();
@@ -17,6 +16,7 @@ dotenv.config();
 const RPC_URL = process.env.RPC_URL || "http://127.0.0.1:8899";
 const PROGRAM_ID = process.env.PROGRAM_ID || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
+console.log("market key:",MARKET_PUBKEY)
 const PORT = process.env.PORT || 3001;
 console.log("port:", PORT)
 if (!PROGRAM_ID || !MARKET_PUBKEY) {
@@ -100,71 +100,57 @@ io.on("connection", async (socket: Socket) => {
   activeConnections.set(socket.id, socket);
 
   try {
-    // Fetch market state
     const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
-    console.log("makret state:", marketState)
     if (!marketState) {
-      socket.emit("error", {
-        message: "Market not found",
-        timestamp: Date.now(),
-      });
+      socket.emit("error", { message: "Market not found", timestamp: Date.now() });
       socket.disconnect();
       return;
     }
 
     const conversion = new Conversion(marketState);
 
-    // Send initial snapshot
-    const { asks, bids } = await fetchOrderBook(marketState, conversion);
-    console.log("asks:", asks)
-    console.log("bids:", bids)
-    // snapshot for candle chart
-    const candles = await snapshotOfCandle("1d", MARKET_PUBKEY)
-
-    console.log("candles:", candles)
-    // emitting the event
-    // Emit the event with proper structure
+    // ── Fetch everything in parallel ──────────────────────────────────────
+    const [{ asks, bids }, candles] = await Promise.all([
+      fetchOrderBook(marketState, conversion),
+      snapshotOfCandle("1d", MARKET_PUBKEY),
+    ])
+    console.log("asks:",asks)
+    console.log("bids:",bids)
+    // ── One single emit with all data ─────────────────────────────────────
     socket.emit("snapshot", {
-      market: formatMarketMetadata(marketState),
+      market:    formatMarketMetadata(marketState),
       orderbook: { asks, bids },
+      candles:   { candles: candles.candles, volumeData: candles.volumeData },
       timestamp: Date.now(),
-      candles: {  // Consistent structure
-        candles: candles.candles,
-        volumeData: candles.volumeData  // Changed to volumeData
-      }
     });
-    // In your indexer file
-    socket.on("resolution", async (data: { resolution: string }) => {
-      try {
-        const { resolution } = data;
-        const candles = await snapshotOfCandle(resolution, MARKET_PUBKEY);
 
-        // FIX: Use consistent structure with frontend
+    console.log(`📸 Snapshot sent to ${socket.id}: ${asks.length} asks, ${bids.length} bids`);
+
+    // ── Order history — fetched when wallet connects ───────────────────────
+    socket.on("user-pubkey", async (pubkey: string) => {
+      const orderHistory = await getOrderHistory(pubkey, MARKET_PUBKEY)
+      console.log("order history:",orderHistory)
+      socket.emit("order-history", orderHistory)
+    })
+
+    // ── Resolution change ─────────────────────────────────────────────────
+    socket.on("resolution", async ({ resolution }: { resolution: string }) => {
+      try {
+        const candles = await snapshotOfCandle(resolution, MARKET_PUBKEY)
         socket.emit(`resolution:${resolution}`, {
-          candles: {
-            candles: candles.candles,
-            volumeData: candles.volumeData  // Changed from volume to volumeData
-          }
-        });
+          candles: { candles: candles.candles, volumeData: candles.volumeData }
+        })
       } catch (error) {
         console.error("Error handling resolution change:", error);
       }
-    });
-    console.log(
-      `📸 Snapshot sent to ${socket.id}: ${asks.length} asks, ${bids.length} bids`
-    );
-    // Start event listener if not already running
+    })
+
+    // ── Event listener ────────────────────────────────────────────────────
     if (!eventCleanup) {
       eventCleanup = await listener.start(async (event) => {
         try {
-          // Validate event data before processing
-          if (!event || !event.data) {
-            console.warn("⚠️ Invalid event data received");
-            return;
-          }
-          console.log("event:",event)
+          if (!event || !event.data) { console.warn("⚠️ Invalid event"); return; }
           await OrderEvent(event, io, marketState, socket)
-
         } catch (error: any) {
           console.error("❌ Error processing event:", error);
           io.emit("error", { message: error.message })
@@ -173,26 +159,18 @@ io.on("connection", async (socket: Socket) => {
       console.log("🎧 Event listener started");
     }
 
-    // Handle client disconnect
+    // ── Disconnect ────────────────────────────────────────────────────────
     socket.on("disconnect", () => {
       console.log(`❌ Client disconnected: ${socket.id}`);
       activeConnections.delete(socket.id);
-
-      // If no clients connected, optionally stop listener
-      // if (activeConnections.size === 0) {
-      //   stopEventListener();
-      // }
     });
+
   } catch (error: any) {
     console.error("❌ Connection error:", error);
-    socket.emit("error", {
-      message: error.message || "Internal server error",
-      timestamp: Date.now(),
-    });
+    socket.emit("error", { message: error.message || "Internal server error", timestamp: Date.now() });
     socket.disconnect();
   }
 });
-
 /**
  * Stop event listener
  */
