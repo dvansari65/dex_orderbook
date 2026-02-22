@@ -1,56 +1,40 @@
+"use client"
+
 import { useEffect, useRef, useState } from 'react';
-import {
-  createChart,
-  CandlestickSeries,
-  IChartApi,
-  ISeriesApi,
-  ColorType,
-  AreaSeries
-} from 'lightweight-charts';
+import { createChart, CandlestickSeries, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
 import { useSocket } from '@/providers/SocketProvider';
+import CandleChartSkeleton from './ui/candle-chart-skeleton';
 
-// Types for our data
-interface CandleData {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
+interface CandleData { time: string; open: number; high: number; low: number; close: number; }
+interface CandleUpdate { candle: CandleData; volume: number; timestamp: string; }
 
-interface VolumeData {
-  time: string;
-  value: number;
-}
+const sanitizeCandles = (candles: CandleData[]): CandleData[] => {
+  const deduped = Object.values(
+    candles.reduce((acc, c) => { acc[c.time] = c; return acc; }, {} as Record<string, CandleData>)
+  ).sort((a, b) => (a.time > b.time ? 1 : -1));
 
-interface SnapshotData {
-  candles: CandleData[];
-  volumeData: VolumeData[];
-}
-
-interface CandleUpdate {
-  candle: CandleData;
-  volume: number;
-  timestamp: string;
-}
+  return deduped.filter(c => {
+    const isFlat = c.open === c.high && c.high === c.low && c.low === c.close;
+    if (isFlat) console.warn('Filtered placeholder candle:', c);
+    return !isFlat;
+  });
+};
 
 export default function CandleChart() {
-  const chartRef = useRef<HTMLDivElement>(null);
+  const chartRef         = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const candleSeriesRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [resolution, setResolution] = useState('1d');
+  const [isLoaded, setIsLoaded]     = useState(false);
   const socket = useSocket();
 
   useEffect(() => {
     if (!chartRef.current || chartInstanceRef.current || !socket) return;
-
     const container = chartRef.current;
-    
-    // Create chart
+
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 400,
+      height: container.clientHeight || 400,
       layout: {
         background: { type: ColorType.Solid, color: '#FAF8F6' },
         textColor: '#6F625B',
@@ -59,198 +43,98 @@ export default function CandleChart() {
         vertLines: { color: '#E6E4E1' },
         horzLines: { color: '#E6E4E1' },
       },
-      timeScale:{
-        timeVisible: true,  
-        secondsVisible:false
-      }
+      timeScale: { timeVisible: true, secondsVisible: false },
     });
 
     chartInstanceRef.current = chart;
 
-    // Create candlestick series (price)
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#26a69a', 
-      downColor: '#ef5350', 
+      upColor: '#26a69a', downColor: '#ef5350',
       borderVisible: false,
-      wickUpColor: '#26a69a', 
-      wickDownColor: '#ef5350',
+      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     });
 
-    // Create volume area series
-    const volumeSeries = chart.addSeries(AreaSeries, {
-      lineColor: 'rgba(0, 150, 136, 0.8)',
-      topColor: 'rgba(0, 150, 136, 0.3)',
-      bottomColor: 'rgba(0, 150, 136, 0)',
-      priceFormat: {
-        type: 'volume',
-      }
-    });
-
-    // Position volume at bottom (20% of chart height)
-    chart.priceScale('right').applyOptions({
-      scaleMargins: {
-        top: 0.2,   // Price scale uses top 20%
-        bottom: 0.2 // Price scale uses bottom 20%
-      }
-    });
-
-    // Store refs for later use
     candleSeriesRef.current = candleSeries;
-    volumeSeriesRef.current = volumeSeries;
 
-    // Handle snapshot data (initial load)
-    const handleSnapshot = (data: { candles: SnapshotData }) => {
-      console.log("Candle snapshot data:", data);
-      
-      if (!data?.candles) {
-        console.error("No candle data in snapshot");
-        return;
-      }
-      console.log("candles:",data.candles.candles)
-      // Set candlestick data
-      if (data.candles.candles && Array.isArray(data.candles.candles)) {
-        candleSeries.setData(data.candles.candles);
-      }
-
-      // Fit content after data is set
-      setTimeout(() => {
-        chart.timeScale().fitContent();
-      }, 50);
+    const handleSnapshot = (data: any) => {
+      if (!data?.candles?.candles) return;
+      candleSeries.setData(sanitizeCandles(data.candles.candles));
+      setTimeout(() => { chart.timeScale().fitContent(); setIsLoaded(true); }, 50);
     };
 
-    // Handle real-time candle updates
     const handleCandleUpdate = (updateData: CandleUpdate) => {
-      console.log("Candle update:", updateData);
-      
-      if (!updateData?.candle || !updateData.candle.time) {
-        console.error("Invalid candle update data");
-        return;
-      }
-      // Update candlestick
+      if (!updateData?.candle?.time) return;
       candleSeries.update(updateData.candle);
-      
-      // Update volume
-      volumeSeries.update({
-        time: updateData.candle.time,
-        value: updateData.volume
-      });
-    };
-
-    // Handle window resize
-    const handleResize = () => {
-      if (container && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({
-          width: container.clientWidth
-        });
-      }
     };
 
     const handleResolutionRes = (data: any) => {
-      console.log("resolution response:", data);
-      
-      if (data?.candles?.candles) {
-        candleSeries.setData(data.candles.candles);
-      }
-      
-      if (data?.candles?.volumeData) {
-        volumeSeries.setData(data.candles.volumeData);
-      }
-      
-      // Fit content after data is set
-      setTimeout(() => {
-        chart.timeScale().fitContent();
-      }, 50);
+      if (!data?.candles?.candles) return;
+      candleSeries.setData(sanitizeCandles(data.candles.candles));
+      setTimeout(() => chart.timeScale().fitContent(), 50);
     };
-  
-    // Add event listeners
-    socket.on("snapshot", handleSnapshot);
-    socket.on("candle:filled", handleCandleUpdate);
-    socket.on(`resolution:${resolution}`,handleResolutionRes)
+
+    const handleResize = () => chart.applyOptions({ width: container.clientWidth });
+
+    socket.on('snapshot', handleSnapshot);
+    socket.on('candle:filled', handleCandleUpdate);
+    socket.on('resolution:1m', handleResolutionRes);
+    socket.on('resolution:5m', handleResolutionRes);
+    socket.on('resolution:1h', handleResolutionRes);
+    socket.on('resolution:1d', handleResolutionRes);
     window.addEventListener('resize', handleResize);
 
-    // Cleanup
     return () => {
-      socket.off("snapshot", handleSnapshot);
-      socket.off("candle:filled", handleCandleUpdate);
+      socket.off('snapshot', handleSnapshot);
+      socket.off('candle:filled', handleCandleUpdate);
+      socket.off('resolution:1m', handleResolutionRes);
+      socket.off('resolution:5m', handleResolutionRes);
+      socket.off('resolution:1h', handleResolutionRes);
+      socket.off('resolution:1d', handleResolutionRes);
       window.removeEventListener('resize', handleResize);
-      
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.remove();
-        chartInstanceRef.current = null;
-        candleSeriesRef.current = null;
-        volumeSeriesRef.current = null;
-      }
+      chart.remove();
+      chartInstanceRef.current = null;
+      candleSeriesRef.current  = null;
     };
   }, [socket]);
-  const handleResolution = (reso:"1d" | "1w" | "1h" | "4h")=>{
-    switch (reso) {
-      case "1d":
-        setResolution("1d")
-        break;
-      case "1h":
-        setResolution("1h")
-        break;
-      case "1w":
-        setResolution("1w")
-        break;
-      case "4h":
-        setResolution("4h")
-        break;
-      default:
-        setResolution("1h")
-        break;
-    }
-    socket.emit("resolution",resolution)
-  }
-  // Request new data when resolution changes
-  useEffect(() => {
-    if (socket) {
-      socket.emit('request:candles', { resolution });
-    }
-  }, [resolution, socket]);
+
+  const handleResolution = (reso: '1m' | '5m' | '1h' | '1d') => {
+    setResolution(reso);
+    socket.emit('resolution', { resolution: reso });
+  };
+
+  const resolutions = ['1m', '5m', '1h', '1d'] as const;
 
   return (
-    <div className="w-full h-full flex flex-col">
+    // ✅ chart div is ALWAYS in the DOM so chartRef.current is never null
+    <div className="w-full h-full flex flex-col relative">
+
+      {/* ✅ Skeleton overlays on top, disappears once loaded */}
+      {!isLoaded && (
+        <div className="absolute inset-0 z-10">
+          <CandleChartSkeleton />
+        </div>
+      )}
+
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
-        <span className="text-sm font-semibold" style={{ color: '#2B1B12' }}>
-          Candle Chart
-        </span>
+        <span className="text-sm font-semibold text-primary">Candle Chart</span>
         <div className="flex items-center gap-3">
-          <span 
-            onClick={() => handleResolution('1h')}
-            className="text-xs cursor-pointer" 
-            style={{ color: resolution === '1h' ? '#FF7A2F' : '#9A928C', fontWeight: resolution === '1h' ? 600 : 400 }}
-          >
-            1H
-          </span>
-          <span 
-            onClick={() => handleResolution('4h')}
-            className="text-xs cursor-pointer" 
-            style={{ color: resolution === '4h' ? '#FF7A2F' : '#9A928C', fontWeight: resolution === '4h' ? 600 : 400 }}
-          >
-            4H
-          </span>
-          <span 
-            onClick={() => handleResolution('1d')}
-            className="text-xs cursor-pointer" 
-            style={{ color: resolution === '1d' ? '#FF7A2F' : '#9A928C', fontWeight: resolution === '1d' ? 600 : 400 }}
-          >
-            1D
-          </span>
-          <span 
-            onClick={() => handleResolution('1w')}
-            className="text-xs cursor-pointer" 
-            style={{ color: resolution === '1w' ? '#FF7A2F' : '#9A928C', fontWeight: resolution === '1w' ? 600 : 400 }}
-          >
-            1W
-          </span>
+          {resolutions.map(r => (
+            <span
+              key={r}
+              onClick={() => handleResolution(r)}
+              className="text-xs cursor-pointer uppercase"
+              style={{
+                color: resolution === r ? 'var(--phoenix-accent)' : 'var(--phoenix-text-subtle)',
+                fontWeight: resolution === r ? 600 : 400,
+              }}
+            >
+              {r}
+            </span>
+          ))}
         </div>
       </div>
-      <div 
-        ref={chartRef} 
-        className="w-full flex-1" 
-        style={{ minHeight: '400px' }}
-      />
+
+      <div ref={chartRef} className="w-full flex-1" />
     </div>
   );
 }
