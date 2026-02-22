@@ -335,11 +335,7 @@ pub fn match_orders(
         event_queue.insert_event(event)?;
         maker_qty_remained = quantity_remained
     }
-    if order.quantity <= 0 {
-        order.order_status = OrderStatus::Fill;
-    }else {
-        order.order_status = OrderStatus::PartialFill;
-    }
+    
     Ok(MatchOutcome::Matched( MatchResult{
         taker_qty:order.quantity,
         maker_qty:maker_qty_remained
