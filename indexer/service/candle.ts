@@ -43,7 +43,7 @@ export const handleFillEvent = async (
       }
     });
     // updating order
-    await updateOrdersOnFill(makerOrderId,takerOrderId,baseLotsFilled)
+    await updateOrdersOnFill(makerOrderId,takerOrderId,baseLotsFilled?.toNumber())
 
     const resolutions = ['1m', '5m', '1h', '1d'];
     let result: FillEventResult | undefined;
@@ -133,7 +133,13 @@ export const snapshotOfCandle = async (
   volumeData: { time: string, value: number }[]
 }> => {
   try {
-    
+    if( typeof marketPubKey !== "string" || !marketPubKey || !resolution){
+      console.error("Market key not provided!");
+      return {
+        candles:[],
+        volumeData:[]
+      }
+    }
     const candles = await prisma.candle.findMany({
       where: { 
         marketAddress: marketPubKey, 
