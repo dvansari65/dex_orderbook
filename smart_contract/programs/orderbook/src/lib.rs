@@ -250,6 +250,7 @@ pub mod orderbook {
                                 &market_pubkey,
                                 side,
                             )?;
+                            created_order.order_status = OrderStatus::PartialFill;
                         }
                     }
                     MatchOutcome::NoMatch(msg) => {
@@ -277,6 +278,7 @@ pub mod orderbook {
                             &market_pubkey,
                             side,
                         )?;
+                        created_order.order_status = OrderStatus::Open;
                     }
                 }
             }
@@ -294,6 +296,7 @@ pub mod orderbook {
                             msg!("As this is IOC order type , it will not inserted into")
                         }
                         // todo: move assets back to the user which is not get filled as this IOC order type
+                        // todo : update order status and learn what is the meaning of order cancel if order get partially matched
                     }
                     MatchOutcome::NoMatch(msg) => {
                         msg!(msg)
