@@ -17,7 +17,7 @@ const parseOrderFillEvent = (event: any): OrderFillEventData | null => {
         taker:             data.taker?.toString(),
         takerOrderId:      data.takerOrderId?.toNumber(),
         side,
-        price:             data.price?.toNumber() / 10,
+        price:             data.price?.toNumber() / 1000,
         baseLotsFilled:    data.baseLotsFilled?.toNumber() / 1000,
         baseLotsRemaining: data.baseLotsRemaining?.toNumber() / 1000,
         timestamp:         data.timestamp?.toNumber(),
