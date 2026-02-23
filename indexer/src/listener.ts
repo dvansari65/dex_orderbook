@@ -45,11 +45,12 @@ export class EventListener {
             return;
           }
 
-          events.forEach((event) => {
-            if (this.isRelevantEvent(event.name)) {
-              callback({...event,signature:logs.signature});
-            }
-          });
+         const relevant = events
+                      .filter((e)=>this.isRelevantEvent(e.name))
+                      .map((e)=>({...e,signature:logs.signature}))
+          if (relevant.length === 0) return;
+          callback(relevant)
+          
         } catch (error) {
           console.error("⚠️ Error parsing events:", error);
         }
