@@ -101,18 +101,18 @@ export const handleFillEvent = async (
           }
         });
       }
-
+      console.log("created candle:",candle)
       // Return only 1m candle for real-time updates
       if (resolution === '1m') {
         result = {
           candle: {
-            high: Number(candle.high),
-            low: Number(candle.low),
-            open: Number(candle.open),
-            close: Number(candle.close),
+            high: Number(candle.high)/1000,
+            low: Number(candle.low)/1000,
+            open: Number(candle.open)/1000,
+            close: Number(candle.close)/1000,
             time: formatTimeForResolution(candle.timestamp, resolution),
           },
-          volume: newVolume,  // Current total volume for this time bucket
+          volume: newVolume/1000,  // Current total volume for this time bucket
           timestamp: candle.timestamp.toISOString()
         };
       }
