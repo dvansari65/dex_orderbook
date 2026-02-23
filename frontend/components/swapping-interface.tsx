@@ -26,7 +26,14 @@ function SwappingInterface() {
   const { mutate, isPending, error } = PlaceOrder()
 
   const clientOrderId = orderIdGenerator.generate();
-  
+
+  const resetForm = () => {
+    setPrice(0);
+    setSize(0);
+    setOrderType({ limit: {} });
+    setSide({ bid: {} });
+  };
+
   const handlePlaceOrder = async () => {
     if (!connected || !publicKey || !signTransaction) {
       setVisible(true)
@@ -46,27 +53,27 @@ function SwappingInterface() {
     console.log("payload:", payload)
     mutate(payload, {
       onSuccess: (data) => {
-        console.log("data order placed:", data)
-        toast.success("Order placed successfully!")
+        console.log("data order placed:", data);
+        toast.success("Order placed successfully!");
+        resetForm(); // ← single call, clears everything
       },
       onError: (error) => {
-        console.log("error:", error.message)
-        if(error.message.includes("Open order not initialised!")){
-          setShowOpenOrderModal(true)
-          toast.error("Please initialize your open order account first")
-        }
-        // ✅ Check if it's an open order initialization error
-        if (
-          error.message.includes("account: open_order") && 
+        console.log("error:", error.message);
+        resetForm(); // ← clears form on error too
+        if (error.message.includes("Open order not initialised!")) {
+          setShowOpenOrderModal(true);
+          toast.error("Please initialize your open order account first");
+        } else if (
+          error.message.includes("account: open_order") &&
           error.message.includes("Error Code: AccountNotInitialized")
         ) {
-          setShowOpenOrderModal(true) // ✅ Show modal
-          toast.error("Please initialize your open order account first")
+          setShowOpenOrderModal(true);
+          toast.error("Please initialize your open order account first");
         } else {
-          toast.error(error.message)
+          toast.error(error.message);
         }
       }
-    })
+    });
     
   }
 
