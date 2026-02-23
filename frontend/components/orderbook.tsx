@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef, memo } from "react";
 import { useSocket } from "@/providers/SocketProvider";
 import OrderBookRow from "./market/initial-snapshot";
 import { OrderFillEventData } from "@/types/events";
+import OrderbookSkeleton from "./ui/orderbook-skeleton";
 
 /* ============================== */
 /* ========= Types ============== */
@@ -33,6 +34,7 @@ interface OrdersById {
   orders: Map<number, Order>;
 }
 
+
 const MemoizedRow = memo(OrderBookRow);
 
 export default function Orderbook() {
@@ -41,23 +43,22 @@ export default function Orderbook() {
     asks: new Map(),
     bids: new Map(),
   });
-  const [orders, setOrders] = useState<OrdersById>({ orders: new Map() });
-
   const bookRef = useRef<OrderBookState>({ asks: new Map(), bids: new Map() });
   // ✅ ordersRef declared before updateOrders which depends on it
   const ordersRef = useRef<Map<number, Order>>(new Map());
-
+  const pendingFills = useRef<Map<number, OrderFillEventData>>(new Map());
   const updateOrders = (updater: (prev: Map<number, Order>) => Map<number, Order>) => {
     const next = updater(ordersRef.current);
     ordersRef.current = next;
-    setOrders({ orders: next });
   };
 
   const batchTimer = useRef<NodeJS.Timeout | null>(null);
 
   const triggerUpdate = () => {
     if (batchTimer.current) return;
+
     batchTimer.current = setTimeout(() => {
+      // Functional update to ensure we use the latest ref values
       setDisplayData({
         asks: new Map(bookRef.current.asks),
         bids: new Map(bookRef.current.bids),
@@ -69,8 +70,12 @@ export default function Orderbook() {
   useEffect(() => {
     if (!socket) return;
 
+    socket.onAny((eventName, ...args) => {
+      console.log(`Incoming Event: ${eventName}`, args);
+    });
+
     const handleSnapshot = (payload: any) => {
-      console.log("asks:", payload.orderbook.asks);
+      console.log("asks:", payload);
       const asks = new Map<number, PriceLevel>();
       const bids = new Map<number, PriceLevel>();
       const orders = new Map<number, Order>();
@@ -107,57 +112,63 @@ export default function Orderbook() {
       triggerUpdate();
     };
 
-    const handleUpdate = (data: any, type: "placed" | "cancelled") => {
-      console.log("data:", data);
-      const { p, q, s, ts, id } = data;
+    const handleOrderPlaced = (data: any) => {
+      console.log("order place event triggere:", data)
+      const id = Number(data.id);
+      const p = Number(data.p);
+      const q = Number(data.q);
+      const s: "bid" | "ask" = data.s;
+
+      ordersRef.current.set(id, { orderId: id, price: p, quantity: q, timestamp: data.ts, side: s });
       const targetMap = s === "ask" ? bookRef.current.asks : bookRef.current.bids;
 
-      if (type === "cancelled") {
-        const priceLevel = targetMap.get(p);
-        if (!priceLevel) return;
+      const priceLevel = targetMap.get(p);
+      if (priceLevel) {
+        targetMap.set(p, {
+          ...priceLevel,
+          quantity: priceLevel.quantity + q,
+          total: (priceLevel.quantity + q) * p,
+        });
+      } else {
+        targetMap.set(p, { orderId: id, price: p, quantity: q, total: p * q });
+      }
+      if (pendingFills.current.has(id)) {
+        const bufferedFill = pendingFills.current.get(id)!;
+        pendingFills.current.delete(id);
+        handleOrderFillEvent(bufferedFill);  // now safe to process
+      }
+      triggerUpdate();
+    };
 
+    const handleOrderCancelled = (data: any) => {
+      const id = Number(data.id);
+      const p = Number(data.p);
+      const q = Number(data.q);
+      const s: "bid" | "ask" = data.s;
+
+      const targetMap = s === "ask" ? bookRef.current.asks : bookRef.current.bids;
+
+      const priceLevel = targetMap.get(p);
+      if (priceLevel) {
         const newQty = priceLevel.quantity - q;
-
-        // ✅ guard against negative quantities leaking into UI
         if (newQty <= 0) {
           targetMap.delete(p);
         } else {
           targetMap.set(p, {
             ...priceLevel,
             quantity: newQty,
-            total: priceLevel.price * newQty,
+            total: p * newQty,
           });
         }
-        updateOrders((prev) => {
-          const next = new Map(prev);
-          next.delete(id);
-          return next;
-        });
       }
 
-      if (type === "placed") {
-        updateOrders((prev) => {
-          const next = new Map(prev);
-          next.set(id, { orderId: id, price: p, quantity: q, timestamp: ts, side: s });
-          return next;
-        });
-
-        const priceLevel = targetMap.get(p);
-        if (priceLevel) {
-          targetMap.set(p, {
-            ...priceLevel,
-            quantity: priceLevel.quantity + q,
-            total: (priceLevel.quantity + q) * priceLevel.price,
-          });
-        } else {
-          targetMap.set(p, { orderId: id, price: p, quantity: q, total: p * q });
-        }
-      }
+      // ✅ Direct ref mutation
+      ordersRef.current.delete(id);
 
       triggerUpdate();
     };
-
-    const handleOrderFillEvent = (data: OrderFillEventData) => {
+    const handleOrderFillEvent = (data: any) => {
+      console.log("fill evet triggered!")
       console.log("fill event data:", data);
       const {
         makerOrderId,
@@ -172,73 +183,56 @@ export default function Orderbook() {
       const makerSlab = side === "bid" ? bookRef.current.asks : bookRef.current.bids;
       const takerSlab = side === "bid" ? bookRef.current.bids : bookRef.current.asks;
 
-      // ✅ read takerOrder BEFORE updateOrders mutates ordersRef
-      const takerOrder = ordersRef.current.get(takerOrderId);
-      const makerOrder = ordersRef.current.get(makerOrderId);
-      if (!makerOrder) {
-        console.warn("[fill] makerOrder not found, skipping fill:", makerOrderId);
+      const takerOrder = ordersRef.current.get(Number(takerOrderId));
+
+      // if taker not in ordersRef yet, order:placed hasn't arrived — buffer and wait
+      if (!takerOrder) {
+        console.warn("[fill] taker not found, buffering fill for takerOrderId:", takerOrderId);
+        pendingFills.current.set(Number(takerOrderId), data);
         return;
       }
-      console.log("taker order:", takerOrder);
 
-      updateOrders((prev) => {
-        const prevOrders = new Map(prev);
-        const makerData = prevOrders.get(makerOrderId);
-        if (!makerData) {
-          return prevOrders;
-        }
-
+      // rest of your logic untouched below
+      const makerOrder = ordersRef.current.get(Number(makerOrderId));
+      if (makerOrder) {
         if (baseLotsRemaining === 0) {
-          prevOrders.delete(makerOrderId);
+          ordersRef.current.delete(Number(makerOrderId));
         } else {
-          prevOrders.set(makerOrderId, { ...makerData, quantity: baseLotsRemaining, timestamp });
+          ordersRef.current.set(Number(makerOrderId), { ...makerOrder, quantity: baseLotsRemaining, timestamp });
         }
-        const takerData = prevOrders.get(takerOrderId);
-
-        if (takerData) {
-          const takerRemainingQty = takerData.quantity - baseLotsFilled;
-          if (takerRemainingQty <= 0) {
-            prevOrders.delete(takerOrderId);
-          } else {
-            prevOrders.set(takerOrderId, { ...takerData, quantity: takerRemainingQty, timestamp });
-          }
+      }
+      if (takerOrder) {
+        const takerRemainingQty = takerOrder.quantity - baseLotsFilled;
+        if (takerRemainingQty <= 0) {
+          ordersRef.current.delete(Number(takerOrderId));
+        } else {
+          ordersRef.current.set(Number(takerOrderId), { ...takerOrder, quantity: takerRemainingQty, timestamp });
         }
-        return prevOrders;
-      });
+      }
 
-      // update maker slab
       const makerPriceLevel = makerSlab.get(price);
-      console.log("maker price level:", makerPriceLevel);
       if (makerPriceLevel) {
         const newMakerQty = makerPriceLevel.quantity - baseLotsFilled;
         if (newMakerQty <= 0) {
           makerSlab.delete(price);
         } else {
-          makerSlab.set(price, {
-            ...makerPriceLevel,
-            quantity: newMakerQty,
-            total: price * newMakerQty,
-          });
+          makerSlab.set(price, { ...makerPriceLevel, quantity: newMakerQty, total: price * newMakerQty });
         }
+      } else {
+        console.warn("[fill] maker price level not found at price:", price);
       }
-      const takerLooupPrice = takerOrder ? takerOrder.price : price;
-      const existingTakerLevel = takerSlab.get(takerLooupPrice)
-      // update taker slab
-      if (existingTakerLevel) {
-        console.log("existing taker level:", existingTakerLevel);
 
-        // ✅ no early return — falls through to triggerUpdate
-        if (existingTakerLevel) {
-          const newTakerQty = existingTakerLevel.quantity - baseLotsFilled;
+      if (takerOrder) {
+        const takerLevel = takerSlab.get(takerOrder.price);
+        if (takerLevel) {
+          const newTakerQty = takerLevel.quantity - baseLotsFilled;
           if (newTakerQty <= 0) {
-            takerSlab.delete(takerLooupPrice);   // ✅ consistent key: takerOrder.price
+            takerSlab.delete(takerOrder.price);
           } else {
-            takerSlab.set(takerLooupPrice, {     // ✅ consistent key: takerOrder.price
-              ...existingTakerLevel,
-              quantity: newTakerQty,
-              total: newTakerQty * takerLooupPrice,
-            });
+            takerSlab.set(takerOrder.price, { ...takerLevel, quantity: newTakerQty, total: takerOrder.price * newTakerQty });
           }
+        } else {
+          console.warn("[fill] taker price level not found at price:", takerOrder.price);
         }
       }
 
@@ -246,15 +240,17 @@ export default function Orderbook() {
     };
 
     socket.on("snapshot", handleSnapshot);
-    socket.on("order:placed", (d) => handleUpdate(d, "placed"));
-    socket.on("order:filled", handleOrderFillEvent);
-    socket.on("order:cancelled", (d) => handleUpdate(d, "cancelled"));
+    socket.on("tx:events", (events: any[]) => {
+      for (const event of events) {
+        if (event.type === "orderPlacedEvent") handleOrderPlaced(event.data);
+        if (event.type === "orderFillEvent") handleOrderFillEvent(event.data);
+        if (event.type === "OrderCancelledEvent") handleOrderCancelled(event.data);
+      }
+    });
 
     return () => {
-      socket.off("snapshot");
-      socket.off("order:placed");
-      socket.off("order:filled");
-      socket.off("order:cancelled");
+      socket.off("snapshot", handleSnapshot);
+      socket.off("tx:events");
       if (batchTimer.current) clearTimeout(batchTimer.current);
     };
   }, [socket]);
@@ -312,3 +308,8 @@ export default function Orderbook() {
     </div>
   );
 }
+
+// 100.99
+// 100.990000
+// 100990000
+// 100990
