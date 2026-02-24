@@ -20,6 +20,8 @@ pub enum OrderError {
     InvalidNode,
     #[msg("Order can be match , So rejecting the order!")]
     WouldMatchImmediately,
+    #[msg("Invalid Order type!")]
+    InvalidOrderType
 }
 
 #[error_code]
@@ -45,8 +47,11 @@ pub enum MarketError {
     #[msg("Destination vault is uninitialise!")]
     DestinationVaultUninitialized,
     #[msg("Invalid market account!")]
-    InvalidMarketAccount
-
+    InvalidMarketAccount,
+    #[msg("Invalid Quote Price!")]
+    InvalidPrice,
+    #[msg("Invalid base quantity!")]
+    InvalidBaseQty
 }
 
 
@@ -57,7 +62,11 @@ pub enum OpenOrderError {
     #[msg("Order overflow error!")]
     OrderOverFlow,
     #[msg("Price should not be 0")]
-    PriceIsTooLow
+    PriceIsTooLow,
+    #[msg("Base quantity is too low!")]
+    UnderFlow,
+    #[msg("Base quantity is too large!")]
+    OverFlow
 }
 
 
