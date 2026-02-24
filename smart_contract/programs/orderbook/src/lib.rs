@@ -1,7 +1,6 @@
 use crate::states::order_schema::enums::Side;
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    associated_token::AssociatedToken,
     token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount},
 };
 declare_id!("2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku");
@@ -18,11 +17,11 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use std::u32;
+    use std::{default, u32};
 
     use crate::{
         error::ErrorCode,
-        events::emit_order_placed,
+        events::{emit_order_cancelled, emit_order_placed},
         helpers::{match_ioc_orders, match_orders, match_post_only_orders},
         states::order_schema::enums::Side,
     };
@@ -84,7 +83,7 @@ pub mod orderbook {
         Ok(())
     }
     pub fn place_order(
-        ctx: Context<PlaceOrder>,
+        ctx: Context<PlaceLimitOrder>,
         max_base_size: u64,
         client_order_id: u64,
         price: u64,
@@ -121,7 +120,7 @@ pub mod orderbook {
         let quote_lots = price
             .checked_div(market.quote_lot_size)
             .ok_or(MarketError::MathOverflow)?;
-        
+
         let mut created_order = Order {
             order_type,
             side,
@@ -177,6 +176,7 @@ pub mod orderbook {
                     .quote_locked
                     .checked_add(amount_to_lock)
                     .ok_or(MarketError::MathOverflow)?;
+                open_order.orders_count += 1;
             }
             Side::Ask => {
                 let amount_to_lock = base_lots
@@ -211,6 +211,8 @@ pub mod orderbook {
                     .base_locked
                     .checked_add(amount_to_lock)
                     .ok_or(MarketError::MathOverflow)?;
+
+                open_order.orders_count += 1;
             }
         }
         emit_order_placed(
@@ -227,81 +229,35 @@ pub mod orderbook {
             Side::Ask => (asks, bids),
             Side::Bid => (bids, asks),
         };
-        match order_type {
-            OrderType::Limit => {
-                let result = match_orders(
-                    side,
-                    &mut created_order,
-                    opposite_slab,
-                    &market_pubkey,
-                    event_queue,
-                )?;
-                match result {
-                    MatchOutcome::Matched(result) => {
-                        if result.taker_qty > 0 {
-                            same_slab.insert_order(
-                                order_id,
-                                &order_type,
-                                base_lots,
-                                ctx.accounts.owner.key(),
-                                quote_lots,
-                                OrderStatus::PartialFill,
-                                client_order_id,
-                                &market_pubkey,
-                                side,
-                            )?;
-                            created_order.order_status = OrderStatus::PartialFill;
-                        }
-                    }
-                    MatchOutcome::NoMatch(msg) => {
-                        msg!(msg);
-                    }
+        let result = match_orders(
+            side,
+            &mut created_order,
+            opposite_slab,
+            &market_pubkey,
+            event_queue,
+        )?;
+        match result {
+            MatchOutcome::Matched(result) => {
+                if result.taker_qty > 0 {
+                    same_slab.insert_order(
+                        order_id,
+                        &order_type,
+                        base_lots,
+                        ctx.accounts.owner.key(),
+                        quote_lots,
+                        OrderStatus::PartialFill,
+                        client_order_id,
+                        &market_pubkey,
+                        side,
+                    )?;
+                    created_order.order_status = OrderStatus::PartialFill;
+                }else {
+                    created_order.order_status = OrderStatus::Fill;
                 }
             }
-            OrderType::PostOnly => {
-                let result =
-                    match_post_only_orders(same_slab, opposite_slab, side, &created_order)?;
-                match result {
-                    MatchOutcome::NoMatch(msg) => {
-                        msg!(msg)
-                    }
-                    MatchOutcome::Matched(_result) => {
-                        msg!("This is post only order type , orders doesnt get matched, it provides liquidity!");
-                        same_slab.insert_order(
-                            created_order.order_id,
-                            &created_order.order_type,
-                            created_order.quantity,
-                            created_order.owner,
-                            created_order.price,
-                            OrderStatus::Open,
-                            created_order.client_order_id,
-                            &market_pubkey,
-                            side,
-                        )?;
-                        created_order.order_status = OrderStatus::Open;
-                    }
-                }
-            }
-            OrderType::ImmediateOrCancel => {
-                let result = match_ioc_orders(
-                    same_slab,
-                    opposite_slab,
-                    side,
-                    &mut created_order,
-                    &market_pubkey,
-                )?;
-                match result {
-                    MatchOutcome::Matched(outcome) => {
-                        if outcome.taker_qty > 0 {
-                            msg!("As this is IOC order type , it will not inserted into")
-                        }
-                        // todo: move assets back to the user which is not get filled as this IOC order type
-                        // todo : update order status and learn what is the meaning of order cancel if order get partially matched
-                    }
-                    MatchOutcome::NoMatch(msg) => {
-                        msg!(msg)
-                    }
-                }
+            MatchOutcome::NoMatch(msg) => {
+                msg!(msg);
+                created_order.order_status = OrderStatus::Open;
             }
         }
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
@@ -310,6 +266,441 @@ pub mod orderbook {
             .checked_add(1)
             .ok_or(MarketError::OrderIdOverFlow)?;
         msg!("order pushed : {:?} into the open order:", pushed_order);
+        Ok(())
+    }
+
+    pub fn place_ioc_order(
+        ctx: Context<PlaceIOCOrder>,
+        base_qty: u64,
+        price_in_raw_units: u64,
+        order_type: OrderType,
+        client_order_id: u64,
+        side: Side,
+    ) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        let asks = &mut ctx.accounts.asks;
+        let bids = &mut ctx.accounts.bids;
+        let open_order = &mut ctx.accounts.open_order;
+        let owner = &mut ctx.accounts.owner;
+        let order_id = market.next_order_id;
+        let event_queue = &mut ctx.accounts.event_queue;
+
+        require!(market.market_status == 1, MarketError::MarketActiveError);
+        require!(
+            order_type == OrderType::ImmediateOrCancel,
+            OrderError::InvalidOrderType
+        );
+        require!(
+            base_qty >= market.base_lot_size,
+            MarketError::MarketOrderSizeError
+        );
+        require!(price_in_raw_units > 0, MarketError::InvalidPrice);
+
+        market.next_order_id = market
+            .next_order_id
+            .checked_add(1)
+            .ok_or(MarketError::OrderIdOverFlow)?;
+
+        let base_lots = base_qty / market.base_lot_size;
+        let quote_lots = price_in_raw_units
+            .checked_div(market.quote_lot_size)
+            .ok_or(OrderError::UnderFlow)?;
+
+        let mut order = Order {
+            order_type,
+            order_id,
+            side,
+            price: quote_lots,
+            owner: owner.key(),
+            quantity: base_lots,
+            client_order_id,
+            order_status: OrderStatus::Open,
+        };
+        match side {
+            Side::Bid => {
+                // price 100000000/1000= 100000*5000 = 500000000 * 1000 = 5 * 10^11
+                let amount_to_lock = quote_lots
+                    .checked_mul(base_lots)
+                    .ok_or(MarketError::MathOverflow)?
+                    .checked_mul(market.quote_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+
+                require!(
+                    ctx.accounts.user_quote_vault.owner == owner.key(),
+                    MarketError::InvalidTokenAccountOwner
+                );
+
+                require!(
+                    ctx.accounts.user_quote_vault.amount >= amount_to_lock,
+                    MarketError::InsufficientQuoteBalance
+                );
+
+                require!(
+                    ctx.accounts.user_quote_vault.mint == market.quote_mint,
+                    MarketError::InvalidTokenMint
+                );
+
+                require!(
+                    ctx.accounts.quote_vault.mint == market.quote_mint,
+                    MarketError::InvalidTokenMint
+                );
+                msg!("balance of user:{}", ctx.accounts.user_quote_vault.amount);
+                anchor_spl::token::transfer(
+                    CpiContext::new(
+                        ctx.accounts.token_program.to_account_info(),
+                        anchor_spl::token::Transfer {
+                            from: ctx.accounts.user_quote_vault.to_account_info(),
+                            to: ctx.accounts.quote_vault.to_account_info(),
+                            authority: owner.to_account_info(),
+                        },
+                    ),
+                    amount_to_lock,
+                )?;
+                msg!("Transfer successful");
+                open_order.quote_locked = open_order
+                    .quote_locked
+                    .checked_add(amount_to_lock)
+                    .ok_or(MarketError::MathOverflow)?;
+            }
+            Side::Ask => {
+                let amount_to_lock = base_lots
+                    .checked_mul(market.base_lot_size)
+                    .ok_or(MarketError::MathOverflow)?;
+
+                require!(
+                    ctx.accounts.user_base_vault.amount >= amount_to_lock,
+                    MarketError::InsufficientBaseBalance
+                );
+                require!(
+                    ctx.accounts.user_base_vault.owner == owner.key(),
+                    MarketError::InvalidTokenAccountOwner
+                );
+                require!(
+                    ctx.accounts.user_base_vault.mint == market.base_mint,
+                    MarketError::InvalidTokenMint
+                );
+
+                anchor_spl::token::transfer(
+                    CpiContext::new(
+                        ctx.accounts.token_program.to_account_info(),
+                        anchor_spl::token::Transfer {
+                            from: ctx.accounts.user_base_vault.to_account_info(),
+                            to: ctx.accounts.base_vault.to_account_info(),
+                            authority: owner.to_account_info(),
+                        },
+                    ),
+                    amount_to_lock,
+                )?;
+                open_order.base_locked = open_order
+                    .base_locked
+                    .checked_add(amount_to_lock)
+                    .ok_or(MarketError::MathOverflow)?;
+            }
+        }
+        let match_result = match_ioc_orders(asks, bids, side, &mut order, &market.key())?;
+        match match_result {
+            MatchOutcome::Matched(result) => {
+                let _maker_qty = result.maker_qty; // this is qty which is not get filled
+                let taker_qty = result.taker_qty; // this is qty which is not get filled
+                let execution_price = result.execution_price;
+                require!(execution_price > 0, MarketError::InvalidPrice);
+                // taker qty is in base lots
+                match side {
+                    Side::Ask => {
+                        let amount_to_move = taker_qty
+                            .checked_mul(market.base_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+
+                        require!(amount_to_move > 0, MarketError::InvalidBaseQty);
+                        // moving assets to the user back again
+                        anchor_spl::token::transfer(
+                            CpiContext::new(
+                                ctx.accounts.token_program.to_account_info(),
+                                anchor_spl::token::Transfer {
+                                    from: ctx.accounts.base_vault.to_account_info(),
+                                    to: ctx.accounts.user_base_vault.to_account_info(),
+                                    authority: market.to_account_info(),
+                                },
+                            ),
+                            amount_to_move,
+                        )?;
+                        open_order.base_locked = open_order
+                            .base_locked
+                            .checked_sub(amount_to_move)
+                            .ok_or(OpenOrderError::UnderFlow)?;
+
+                        open_order.base_free = open_order
+                            .base_free
+                            .checked_add(amount_to_move)
+                            .ok_or(OpenOrderError::OverFlow)?;
+
+                        order.order_status = OrderStatus::Cancel;
+                        emit_order_cancelled(market.key(), owner.key(), order_id, side, quote_lots);
+                        let event = QueueEvent {
+                            event_type:EventType::Cancel,
+                            order_id,
+                            owner:owner.key(),
+                            counterparty:result.counter_party,
+                            side,
+                            price:quote_lots,
+                            base_quantity:base_lots,
+                            client_order_id,
+                            timestamp:Clock::get()?.unix_timestamp,
+                            market_pubkey:market.key()
+                        };
+                        event_queue.insert_event(event)?;
+                        open_order.orders_count += 1;
+                        open_order.push_order(order)?;
+                    }
+                    Side::Bid => {
+                        let amount_to_move = quote_lots
+                            .checked_mul(taker_qty)
+                            .ok_or(MarketError::MathOverflow)?
+                            .checked_mul(market.quote_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+                        require!(amount_to_move > 0, MarketError::InvalidPrice);
+
+                        anchor_spl::token::transfer(
+                            CpiContext::new(
+                                ctx.accounts.token_program.to_account_info(),
+                                anchor_spl::token::Transfer {
+                                    from: ctx.accounts.quote_vault.to_account_info(),
+                                    to: ctx.accounts.user_quote_vault.to_account_info(),
+                                    authority: market.to_account_info(),
+                                },
+                            ),
+                            amount_to_move,
+                        )?;
+                        open_order.quote_locked = open_order
+                            .base_locked
+                            .checked_sub(amount_to_move)
+                            .ok_or(OpenOrderError::UnderFlow)?;
+                        open_order.quote_free = open_order
+                            .quote_free
+                            .checked_add(amount_to_move)
+                            .ok_or(OpenOrderError::OverFlow)?;
+
+                        order.order_status = OrderStatus::Cancel;
+                        emit_order_cancelled(market.key(), owner.key(), order_id, side, quote_lots);
+                        let event = QueueEvent {
+                            event_type:EventType::Cancel,
+                            order_id,
+                            owner:owner.key(),
+                            counterparty:result.counter_party,
+                            side,
+                            price:quote_lots,
+                            base_quantity:base_lots,
+                            client_order_id,
+                            timestamp:Clock::get()?.unix_timestamp,
+                            market_pubkey:market.key()
+                        };
+                        event_queue.insert_event(event)?;
+                        open_order.orders_count += 1;
+                        open_order.push_order(order)?;
+                    }
+                }
+            }
+            MatchOutcome::NoMatch(msg) => {
+                msg!(msg);
+                order.order_status = OrderStatus::Cancel;
+                emit_order_cancelled(market.key(), owner.key(), order_id, side, quote_lots);
+            }
+        }
+        market.next_order_id = market
+        .next_order_id
+        .checked_add(1)
+        .ok_or(MarketError::OrderIdOverFlow)?;
+        Ok(())
+    }
+    pub fn place_post_only_order(
+        ctx: Context<PlacePostOnlyOrder>,
+        base_qty: u64,
+        price_in_raw_units: u64,
+        order_type: OrderType,
+        client_order_id: u64,
+        side: Side,
+    ) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        let asks = &mut ctx.accounts.asks;
+        let bids = &mut ctx.accounts.bids;
+        let open_order = &mut ctx.accounts.open_order;
+        let owner = &mut ctx.accounts.owner;
+        let order_id = market.next_order_id;
+        let event_queue = &mut ctx.accounts.event_queue;
+        require!(
+            order_type == OrderType::PostOnly,
+            OrderError::InvalidOrderType
+        );
+        require!(
+            base_qty >= market.base_lot_size,
+            MarketError::InvalidBaseQty
+        );
+        require!(price_in_raw_units > 0, MarketError::InvalidPrice);
+        let base_lots = base_qty / market.base_lot_size;
+        let quote_lots = price_in_raw_units
+            .checked_div(market.quote_lot_size)
+            .ok_or(OrderError::UnderFlow)?;
+
+        let mut order = Order {
+            order_type,
+            order_id,
+            side,
+            price: quote_lots,
+            owner: owner.key(),
+            quantity: base_lots,
+            client_order_id,
+            order_status: OrderStatus::Open,
+        };
+        let result = match_post_only_orders(asks, bids, side, &mut order)?;
+        let slab = match side {
+            Side::Ask => asks,
+            Side::Bid => bids,
+        };
+        match result {
+            MatchOutcome::NoMatch(msg) => {
+                msg!(msg);
+                match side {
+                    Side::Ask => {
+                        let amount_to_lock = base_lots
+                            .checked_mul(market.base_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+
+                        require!(
+                            ctx.accounts.user_base_vault.amount >= amount_to_lock,
+                            MarketError::InsufficientBaseBalance
+                        );
+                        require!(
+                            ctx.accounts.user_quote_vault.mint == market.quote_mint,
+                            MarketError::InvalidTokenMint
+                        );
+                        require!(
+                            ctx.accounts.base_vault.mint == market.base_mint,
+                            MarketError::InvalidTokenMint
+                        );
+                        require!(
+                            ctx.accounts.base_vault.owner == owner.key(),
+                            MarketError::InvalidTokenAccountOwner
+                        );
+                        anchor_spl::token::transfer(
+                            CpiContext::new(
+                                ctx.accounts.token_program.to_account_info(),
+                                anchor_spl::token::Transfer{
+                                    from:ctx.accounts.user_base_vault.to_account_info(),
+                                    to:ctx.accounts.base_vault.to_account_info(),
+                                    authority:owner.to_account_info()
+                                }
+                            ),
+                            amount_to_lock
+                        )?;
+                        open_order.base_locked = open_order
+                                            .base_locked
+                                            .checked_add(amount_to_lock)
+                                            .ok_or(MarketError::MathOverflow)?;
+                        open_order.orders_count += 1;
+
+                        slab.insert_order(
+                            order_id,
+                            &order_type,
+                            base_lots,
+                            owner.key(),
+                            quote_lots,
+                            OrderStatus::Open,
+                            client_order_id,
+                            &market.key(),
+                            side
+                        )?;
+                        emit_order_placed(market.key(), owner.key(), order_id, client_order_id, side, quote_lots, base_lots)?;
+                        let event = QueueEvent {
+                            event_type:EventType::Place,
+                            order_id,
+                            owner:owner.key(),
+                            counterparty:Pubkey::default(),
+                            side,
+                            price:quote_lots,
+                            base_quantity:base_lots,
+                            client_order_id,
+                            timestamp:Clock::get()?.unix_timestamp,
+                            market_pubkey:market.key()
+                        };
+                        event_queue.insert_event(event)?;
+                        order.order_status = OrderStatus::Open;
+                        open_order.push_order(order)?;
+                    }
+                    Side::Bid => {
+                        let amount_to_lock = quote_lots
+                            .checked_mul(base_lots)
+                            .ok_or(MarketError::MathOverflow)?
+                            .checked_mul(market.quote_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+
+                        require!(
+                            ctx.accounts.user_base_vault.amount >= amount_to_lock,
+                            MarketError::InsufficientBaseBalance
+                        );
+                        require!(
+                            ctx.accounts.user_quote_vault.mint == market.quote_mint,
+                            MarketError::InvalidTokenMint
+                        );
+                        require!(
+                            ctx.accounts.base_vault.mint == market.base_mint,
+                            MarketError::InvalidTokenMint
+                        );
+                        require!(
+                            ctx.accounts.base_vault.owner == owner.key(),
+                            MarketError::InvalidTokenAccountOwner
+                        );
+                        anchor_spl::token::transfer(
+                            CpiContext::new(
+                                ctx.accounts.token_program.to_account_info(),
+                                anchor_spl::token::Transfer{
+                                    from:ctx.accounts.user_quote_vault.to_account_info(),
+                                    to:ctx.accounts.quote_vault.to_account_info(),
+                                    authority:owner.to_account_info()
+                                }
+                            ),
+                            amount_to_lock
+                        )?;
+                        open_order.quote_locked = open_order
+                                            .quote_locked
+                                            .checked_add(amount_to_lock)
+                                            .ok_or(MarketError::MathOverflow)?;
+                        open_order.orders_count += 1;
+
+                        slab.insert_order(
+                            order_id,
+                            &order_type,
+                            base_lots,
+                            owner.key(),
+                            quote_lots,
+                            OrderStatus::Open,
+                            client_order_id,
+                            &market.key(),
+                            side
+                        )?;
+                        emit_order_placed(market.key(), owner.key(), order_id, client_order_id, side, quote_lots, base_lots)?;
+                        let event = QueueEvent {
+                            event_type:EventType::Place,
+                            order_id,
+                            owner:owner.key(),
+                            counterparty:Pubkey::default(),
+                            side,
+                            price:quote_lots,
+                            base_quantity:base_lots,
+                            client_order_id,
+                            timestamp:Clock::get()?.unix_timestamp,
+                            market_pubkey:market.key()
+                        };
+                        event_queue.insert_event(event)?;
+                        order.order_status = OrderStatus::Open;
+                        open_order.push_order(order)?;
+                    }
+                }
+            }
+            MatchOutcome::Matched(_outcome) => {
+                msg!("Post-only order would match immediately - REJECTED");
+                return Err(OrderError::WouldMatchImmediately.into());
+            }
+        }
         Ok(())
     }
     pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
@@ -373,6 +764,7 @@ pub mod orderbook {
                     ),
                     locked_base,
                 )?;
+                open_order.orders_count -= 1;
             }
             Side::Bid => {
                 let quote_amount = price.checked_mul(quantity).ok_or(ErrorCode::OverFlow)?;
@@ -407,6 +799,7 @@ pub mod orderbook {
                     ),
                     quote_amount,
                 )?;
+                open_order.orders_count -= 1;
             }
         }
         let removed_node = slab.remove_order(&order_id)?;
@@ -425,7 +818,7 @@ pub mod orderbook {
             timestamp: Clock::get()?.unix_timestamp,
             market_pubkey: market.key(),
         };
-        EventQueue::insert_event(event_queue, event)?;
+        event_queue.insert_event( event)?;
         msg!(
             "open order after deleting the order:{:?}",
             returned_open_order
@@ -506,7 +899,81 @@ pub struct InitializeMarket<'info> {
 }
 
 #[derive(Accounts)]
-pub struct PlaceOrder<'info> {
+pub struct PlaceLimitOrder<'info> {
+    #[account(mut)]
+    pub market: Account<'info, Market>,
+
+    #[account(mut, seeds = [b"asks",market.key().as_ref()],bump)]
+    pub asks: Account<'info, Slab>,
+
+    #[account(mut, seeds = [b"bids",market.key().as_ref()],bump)]
+    pub bids: Account<'info, Slab>,
+
+    #[account(
+        mut,
+        seeds = [b"open_order",market.key().as_ref(),owner.key().as_ref()],
+        bump,
+        has_one = owner,
+        has_one = market
+    )]
+    pub open_order: Account<'info, OpenOrders>,
+
+    #[account(mut)]
+    pub event_queue: Account<'info, EventQueue>,
+
+    #[account(mut)]
+    pub quote_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub base_vault: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub user_base_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub user_quote_vault: Account<'info, AnchorTokenAccount>,
+
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct PlaceIOCOrder<'info> {
+    #[account(mut)]
+    pub market: Account<'info, Market>,
+
+    #[account(mut, seeds = [b"asks",market.key().as_ref()],bump)]
+    pub asks: Account<'info, Slab>,
+
+    #[account(mut, seeds = [b"bids",market.key().as_ref()],bump)]
+    pub bids: Account<'info, Slab>,
+
+    #[account(
+        mut,
+        seeds = [b"open_order",market.key().as_ref(),owner.key().as_ref()],
+        bump,
+        has_one = owner,
+        has_one = market
+    )]
+    pub open_order: Account<'info, OpenOrders>,
+
+    #[account(mut)]
+    pub event_queue: Account<'info, EventQueue>,
+
+    #[account(mut)]
+    pub quote_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub base_vault: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub user_base_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub user_quote_vault: Account<'info, AnchorTokenAccount>,
+
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct PlacePostOnlyOrder<'info> {
     #[account(mut)]
     pub market: Account<'info, Market>,
 
