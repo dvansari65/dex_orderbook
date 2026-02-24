@@ -2,9 +2,11 @@ use std::u32;
 
 use anchor_lang::prelude::*;
 
-use crate::error::{ErrorCode, EventError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::events::*;
-use crate::state::{EventQueue, EventType, Market, MatchOutcome, MatchResult, OrderStatus, OrderType, QueueEvent};
+use crate::state::{
+    EventQueue, EventType, MatchOutcome, MatchResult, OrderStatus, OrderType, QueueEvent,
+};
 
 use crate::state::{Node, OpenOrders, Order, Slab};
 use crate::states::order_schema::enums::Side;
@@ -12,7 +14,7 @@ impl Slab {
     pub fn insert_order(
         &mut self,
         order_id: u64,
-        order_type:&OrderType,
+        order_type: &OrderType,
         quantity: u64,
         owner: Pubkey,
         price: u64,
@@ -65,7 +67,7 @@ impl Slab {
             quantity,
             price,
             self.leaf_count
-        );  
+        );
         msg!("slab data:{:?}", self.nodes);
         msg!("Event emission completed");
         Ok(())
@@ -237,11 +239,13 @@ pub fn match_orders(
     // 1. Identify the correct side to match against
     let mut total_quote_qty = 0u64;
     let mut maker_qty_remained = 0u64;
-    // 2. Matching Loop
+    let mut filled_price = 0u64; // price at which order get placed
+    let mut maker_key = Default::default();
     while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
         // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
-        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled,quantity_remained) = {
+        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled, quantity_remained) = {
             let best_opposite = opposite_slab.nodes.first_mut().unwrap();
+            maker_key = best_opposite.owner;
             // 3. Price Cross Check
             // A match only happens if the Taker's price "crosses" the Maker's price.
             let can_match = match side {
@@ -253,7 +257,7 @@ pub fn match_orders(
             }
             let fill_qty = best_opposite.quantity.min(order.quantity);
             let execution_price = best_opposite.price; // Trade executes at the price already on the book
-            msg!("execution price is {}",execution_price.to_string());
+            msg!("execution price is {}", execution_price.to_string());
             // Update quantities in place
             best_opposite.quantity = best_opposite
                 .quantity
@@ -264,14 +268,15 @@ pub fn match_orders(
                 .quantity
                 .checked_sub(fill_qty)
                 .ok_or(OrderError::UnderFlow)?;
-            let quantity_remained =  best_opposite.quantity;
+            let quantity_remained = best_opposite.quantity;
+    
             (
                 fill_qty,
                 execution_price,
                 best_opposite.order_id.clone(),
                 best_opposite.owner,
                 best_opposite.quantity == 0,
-                quantity_remained
+                quantity_remained,
             )
         };
         // 4. Calculate Quote Volume
@@ -304,8 +309,16 @@ pub fn match_orders(
                 market_pubkey: *market_pubkey
             });
             let removed_order = opposite_slab.remove_order(&maker_id)?;
-            msg!("order ID:{} removed from the Slab, Order status{:?}",removed_order.order_id,removed_order.order_status);
-            msg!("order fill event emitted from match order function:market key {} and maker key:{}",market_pubkey,maker_owner);
+            msg!(
+                "order ID:{} removed from the Slab, Order status{:?}",
+                removed_order.order_id,
+                removed_order.order_status
+            );
+            msg!(
+                "order fill event emitted from match order function:market key {} and maker key:{}",
+                market_pubkey,
+                maker_owner
+            );
         } else {
             emit!(OrderPartialFillEvent {
                 maker: maker_owner,
@@ -333,43 +346,98 @@ pub fn match_orders(
             market_pubkey: *market_pubkey,
         };
         event_queue.insert_event(event)?;
-        maker_qty_remained = quantity_remained
+        maker_qty_remained = quantity_remained;
+        filled_price = execution_price;
     }
-    
-    Ok(MatchOutcome::Matched( MatchResult{
-        taker_qty:order.quantity,
-        maker_qty:maker_qty_remained
+
+    Ok(MatchOutcome::Matched(MatchResult {
+        taker_qty: order.quantity,
+        maker_qty: maker_qty_remained,
+        execution_price: filled_price,
+        counter_party:maker_key
     }))
 }
 
-pub fn match_post_only_orders(asks: &Slab, bids: &Slab, side: Side, order: &Order) -> Result<MatchOutcome> {
+pub fn match_post_only_orders(
+    asks: &Slab,
+    bids: &Slab,
+    side: Side,
+    order: &Order,
+) -> Result<MatchOutcome> {
     match side {
         Side::Ask => {
+            // Check if there are any bids to match against
             if bids.nodes.is_empty() {
-                return Ok(MatchOutcome::NoMatch("Bids slab is empty!"));
+                // No bids exist - order CANNOT match, so it's SAFE for post-only
+                return Ok(MatchOutcome::NoMatch("No bids exist - order won't match"));
             }
+
             let best_bid = bids.nodes.first().ok_or(OrderError::InvalidNode)?;
+
+            // For Ask (sell): order would match if price <= best_bid
             if order.price <= best_bid.price {
-                msg!("Best bid is greater than selling price, so order can match, returning...");
-                return Ok(MatchOutcome::NoMatch("Best bid is greater than selling price, so order can match, returning..."))
+                // Order WOULD match immediately - REJECT for post-only
+                msg!(
+                    "Ask price {} <= best bid {} - would match immediately. REJECTING",
+                    order.price,
+                    best_bid.price
+                );
+                return Ok(MatchOutcome::Matched(MatchResult {
+                    maker_qty: 0, // These can be 0 since we're just using Matched as rejection signal
+                    taker_qty: 0,
+                    execution_price: 0,
+                    counter_party:best_bid.owner
+                }));
+            } else {
+                // Order would NOT match - SAFE for post-only
+                msg!(
+                    "Ask price {} > best bid {} - won't match. ACCEPTING",
+                    order.price,
+                    best_bid.price
+                );
+                return Ok(MatchOutcome::NoMatch(
+                    "Order won't match - safe for post-only",
+                ));
             }
         }
+
         Side::Bid => {
-            if !asks.nodes.is_empty() {
-                if asks.nodes.is_empty() {
-                    return Ok(MatchOutcome::NoMatch("Asks slab is empty!"));
-                }
-                let best_ask = asks.nodes.first().ok_or(OrderError::InvalidNode)?;
-                if order.price >= best_ask.price {
-                    msg!("Bidding price is greater than best ask price, so order can match,returning...");
-                    return Ok(MatchOutcome::NoMatch("Bidding price is greater than best ask price, so order can match,returning..."))
-                }
+            // Check if there are any asks to match against
+            if asks.nodes.is_empty() {
+                // No asks exist - order CANNOT match, so it's SAFE for post-only
+                return Ok(MatchOutcome::NoMatch("No asks exist - order won't match"));
+            }
+
+            let best_ask = asks.nodes.first().ok_or(OrderError::InvalidNode)?;
+
+            // For Bid (buy): order would match if price >= best_ask
+            if order.price >= best_ask.price {
+                // Order WOULD match immediately - REJECT for post-only
+                msg!(
+                    "Bid price {} >= best ask {} - would match immediately. REJECTING",
+                    order.price,
+                    best_ask.price
+                );
+                return Ok(MatchOutcome::Matched(MatchResult {
+                    maker_qty: 0,
+                    taker_qty: 0,
+                    execution_price: 0,
+                    counter_party:best_ask.owner
+                }));
+            } else {
+                // Order would NOT match - SAFE for post-only
+                msg!(
+                    "Bid price {} < best ask {} - won't match. ACCEPTING",
+                    order.price,
+                    best_ask.price
+                );
+                return Ok(MatchOutcome::NoMatch(
+                    "Order won't match - safe for post-only",
+                ));
             }
         }
     }
-    Ok(MatchOutcome::Matched(MatchResult { maker_qty: 0, taker_qty: 0 }))
 }
-
 pub fn match_ioc_orders(
     asks: &mut Slab,
     bids: &mut Slab,
@@ -377,21 +445,45 @@ pub fn match_ioc_orders(
     order: &mut Order,
     market_pubkey: &Pubkey,
 ) -> Result<MatchOutcome> {
-
     match side {
         Side::Ask => {
             if bids.nodes.is_empty() {
-                return Ok(MatchOutcome::NoMatch("opposite slab is empty, order can't be matched!"));
+                return Ok(MatchOutcome::NoMatch(
+                    "opposite slab is empty, order can't be matched!",
+                ));
             }
-            let (maker_order_id, maker_owner, available_qty, maker_qty, maker_filled) = {
+            let (
+                execution_price,
+                maker_order_id,
+                maker_owner,
+                available_qty,
+                maker_qty,
+                maker_filled,
+            ) = {
                 let best_bid = bids.nodes.first_mut().unwrap();
                 if order.price > best_bid.price {
-                    return Ok(MatchOutcome::NoMatch("ask price too high to cross best bid, no match"));
+                    return Ok(MatchOutcome::NoMatch(
+                        "ask price too high to cross best bid, no match",
+                    ));
                 }
                 let available_qty = best_bid.quantity.min(order.quantity);
-                order.quantity = order.quantity.checked_sub(available_qty).ok_or(OrderError::UnderFlow)?;
-                best_bid.quantity = best_bid.quantity.checked_sub(available_qty).ok_or(SlabError::UnderFlow)?;
-                (best_bid.order_id, best_bid.owner, available_qty, best_bid.quantity, best_bid.quantity == 0)
+                let price = best_bid.price;
+                order.quantity = order
+                    .quantity
+                    .checked_sub(available_qty)
+                    .ok_or(OrderError::UnderFlow)?;
+                best_bid.quantity = best_bid
+                    .quantity
+                    .checked_sub(available_qty)
+                    .ok_or(SlabError::UnderFlow)?;
+                (
+                    price,
+                    best_bid.order_id,
+                    best_bid.owner,
+                    available_qty,
+                    best_bid.quantity,
+                    best_bid.quantity == 0,
+                )
             };
 
             if maker_filled {
@@ -422,25 +514,52 @@ pub fn match_ioc_orders(
                     market_pubkey: *market_pubkey,
                 });
             }
-            Ok(MatchOutcome::Matched(MatchResult {  
+            Ok(MatchOutcome::Matched(MatchResult {
                 maker_qty,
                 taker_qty: order.quantity,
+                execution_price,
+                counter_party:maker_owner
             }))
         }
 
         Side::Bid => {
             if asks.nodes.is_empty() {
-                return Ok(MatchOutcome::NoMatch("opposite slab is empty, order can't be matched!"));
+                return Ok(MatchOutcome::NoMatch(
+                    "opposite slab is empty, order can't be matched!",
+                ));
             }
-            let (maker_order_id, maker_owner, available_qty, maker_qty, maker_filled) = {
+            let (
+                execution_price,
+                maker_order_id,
+                maker_owner,
+                available_qty,
+                maker_qty,
+                maker_filled,
+            ) = {
                 let best_ask = asks.nodes.first_mut().unwrap();
                 if order.price < best_ask.price {
-                    return Ok(MatchOutcome::NoMatch("bid price too low to cross best ask, no match"));
+                    return Ok(MatchOutcome::NoMatch(
+                        "bid price too low to cross best ask, no match",
+                    ));
                 }
                 let available_qty = best_ask.quantity.min(order.quantity);
-                order.quantity = order.quantity.checked_sub(available_qty).ok_or(OrderError::UnderFlow)?;
-                best_ask.quantity = best_ask.quantity.checked_sub(available_qty).ok_or(SlabError::UnderFlow)?;
-                (best_ask.order_id, best_ask.owner, available_qty, best_ask.quantity, best_ask.quantity == 0)
+                let execution_price = best_ask.price;
+                order.quantity = order
+                    .quantity
+                    .checked_sub(available_qty)
+                    .ok_or(OrderError::UnderFlow)?;
+                best_ask.quantity = best_ask
+                    .quantity
+                    .checked_sub(available_qty)
+                    .ok_or(SlabError::UnderFlow)?;
+                (
+                    execution_price,
+                    best_ask.order_id,
+                    best_ask.owner,
+                    available_qty,
+                    best_ask.quantity,
+                    best_ask.quantity == 0,
+                )
             };
 
             match maker_filled {
@@ -475,9 +594,11 @@ pub fn match_ioc_orders(
                 }
             }
 
-            Ok(MatchOutcome::Matched(MatchResult { 
+            Ok(MatchOutcome::Matched(MatchResult {
                 maker_qty,
                 taker_qty: order.quantity,
+                execution_price,
+                counter_party:maker_owner
             }))
         }
     }
@@ -532,10 +653,9 @@ impl EventQueue {
     }
 }
 
-
 // flow of the events
 // first order place event is emitted!
-// event emitted and grab at the indexer 
+// event emitted and grab at the indexer
 // event sent to the frontend via websockets
 // checked side is this "ask" or "bid"
 // pushed into the temp storage of orders by id
@@ -543,22 +663,22 @@ impl EventQueue {
 // if exist we will increase the quantity and adjust the total price
 // #### order matching flow #####
 // order matched successfully
-// suppose order filled event is emitted 
+// suppose order filled event is emitted
 // event emitted from the smart contract and fill qty is 5 @ price 102
 // event grabbed at the indexer
 // emmited to the frontend using sockets
 // find order by order id in temp storage and delete that mapping
 // and in price level find the price level
 // substract the quantity and adjust the total accordingly
-// if quantity becomes zero delete that mapping 
+// if quantity becomes zero delete that mapping
 
-// i am sending order fill or order partial events 
+// i am sending order fill or order partial events
 // i am seding fill qty aand maker order id and taker order id
 // thing to note , both orders ar present at the frontend becasue we pushed order to the slab
 // let supose  place order data event is not emitting at the starting
-// order fill event will be emitted first 
+// order fill event will be emitted first
 // maker's ui data will be updated first
-// and then place order emitted and pushed into the slab and event grabbed and sent to the frontend 
+// and then place order emitted and pushed into the slab and event grabbed and sent to the frontend
 // suppose side is "ask" and find price level let suppose 100
 // and if remaining qyt is 0 , we will not pushing into the ui slab
-// 
+//
