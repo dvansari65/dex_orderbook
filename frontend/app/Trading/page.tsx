@@ -18,7 +18,7 @@ interface RecentTrade {
 }
 
 const Trading = memo(() => {
-  const [orders, setOrders] = useState<Order[]>([])
+  const [orders, setOrders] = useState<Order[]>([]);
   const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([])
   const socket = useSocket()
   const { publicKey } = useWallet()
@@ -41,7 +41,7 @@ const Trading = memo(() => {
   }, [socket, publicKey?.toString()])
 
   return (
-    <div className="w-full h-screen flex flex-col lg:flex-row overflow-hidden bg-[var(--phoenix-bg-subtle)]">
+    <div className="w-full h-screen flex flex-col lg:flex-row lg::overflow-hidden bg-[var(--phoenix-bg-subtle)]">
 
       {/* ── LEFT: Chart + Order History ── */}
       <div className="flex flex-col flex-1 p-2 gap-2 min-w-0 h-full">
@@ -104,20 +104,20 @@ const Trading = memo(() => {
           </div>
 
           <div className="divide-light overflow-y-auto flex-1">
-            {recentTrades.length === 0 ? (
+            { recentTrades && recentTrades?.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-1.5">
                 <span className="text-[11px] text-subtle">Waiting for trades...</span>
               </div>
             ) : recentTrades.map((trade, i) => (
               <div key={i} className="grid grid-cols-3 items-center px-4 py-2.5 hover:bg-subtle transition-colors duration-100">
                 <span className={`text-[12px] font-semibold tabular-nums ${trade.side === 'bid' ? 'text-bid' : 'text-ask'}`}>
-                  ${trade.price.toFixed(2)}
+                  ${trade?.price?.toFixed(2)}
                 </span>
                 <span className="text-[11px] text-secondary tabular-nums">
-                  {trade.quantity.toFixed(2)}
+                  {trade?.quantity?.toFixed(2)}
                 </span>
                 <span className="text-[10px] text-subtle">
-                  {new Date(trade.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {new Date(trade?.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
               </div>
             ))}
