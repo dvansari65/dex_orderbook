@@ -82,7 +82,7 @@ pub mod orderbook {
 
         Ok(())
     }
-    pub fn place_order(
+    pub fn place_limit_order(
         ctx: Context<PlaceLimitOrder>,
         max_base_size: u64,
         client_order_id: u64,
@@ -261,10 +261,6 @@ pub mod orderbook {
             }
         }
         let pushed_order = OpenOrders::push_order(open_order, created_order)?;
-        market.next_order_id = market
-            .next_order_id
-            .checked_add(1)
-            .ok_or(MarketError::OrderIdOverFlow)?;
         msg!("order pushed : {:?} into the open order:", pushed_order);
         Ok(())
     }
