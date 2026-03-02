@@ -22,7 +22,7 @@ pub mod orderbook {
     use crate::{
         error::ErrorCode,
         events::{emit_order_cancelled, emit_order_placed},
-        helpers::{match_ioc_orders, match_orders, match_post_only_orders},
+        helpers::{match_ioc_orders, match_orders, match_post_only_orders, settle_amounts, update_order_status},
         states::order_schema::enums::Side,
     };
 
@@ -252,7 +252,7 @@ pub mod orderbook {
                     )?;
                     created_order.order_status = OrderStatus::PartialFill;
                 }else {
-                    created_order.order_status = OrderStatus::Fill;
+                    created_order.order_status = OrderStatus::Open;
                 }
             }
             MatchOutcome::NoMatch(msg) => {
@@ -393,7 +393,7 @@ pub mod orderbook {
                     .ok_or(MarketError::MathOverflow)?;
             }
         }
-        let match_result = match_ioc_orders(asks, bids, side, &mut order, &market.key())?;
+        let match_result = match_ioc_orders(asks, bids, side, &mut order, &market.key(),event_queue)?;
         match match_result {
             MatchOutcome::Matched(result) => {
                 let _maker_qty = result.maker_qty; // this is qty which is not get filled
@@ -502,10 +502,6 @@ pub mod orderbook {
                 emit_order_cancelled(market.key(), owner.key(), order_id, side, quote_lots);
             }
         }
-        market.next_order_id = market
-        .next_order_id
-        .checked_add(1)
-        .ok_or(MarketError::OrderIdOverFlow)?;
         Ok(())
     }
     pub fn place_post_only_order(
@@ -833,6 +829,50 @@ pub mod orderbook {
         open_order.orders = Vec::new();
         Ok(())
     }
+    pub fn consume_events(ctx: Context<ConsumeEvents>, vault_signer_bump: u8) -> Result<()> {
+        // ── 1. Guard: queue must have at least one event ──
+        require!(
+            ctx.accounts.event_queue.count > 0,
+            MarketError::EventQueueEmpty
+        );
+        // ── 2. Grab the head event (oldest unprocessed) ──
+        let head_index = ctx.accounts.event_queue.head as usize;
+        let event = ctx.accounts.event_queue.events[head_index].clone();
+    
+        // ── 3. Verify this event belongs to the taker/maker passed in ──
+        require!(
+            event.owner == ctx.accounts.taker.key(),
+            MarketError::InvalidTakerAccount
+        );
+
+        // ── 4. Only process Fill and PartialFill — others just pop ──
+        match event.event_type {
+            EventType::Fill | EventType::PartialFill => {
+                settle_amounts(&ctx.accounts, &event, vault_signer_bump)?;
+                update_order_status(&mut ctx.accounts.taker_open_orders, &event, OrderStatus::Fill)?;
+                update_order_status(&mut ctx.accounts.maker_open_order, &event, OrderStatus::Fill)?;
+            }
+            EventType::Cancel => {
+                // Cancel settlement is handled in cancel_order instruction itself
+                // Just pop the event here
+                ctx.accounts.event_queue.pop_front();
+                msg!("Cancel event popped from queue: order_id {}", event.order_id);
+            }
+            _ => {
+                msg!("Unhandled event type, popping: {:?}", event.event_type);
+            }
+        }
+        // ── 5. Advance head pointer (ring buffer) ──
+        ctx.accounts.event_queue.pop_front();
+        msg!(
+            "Event consumed: type={:?} order_id={} remaining_in_queue={}",
+            event.event_type,
+            event.order_id,
+            ctx.accounts.event_queue.count
+        );
+    
+        Ok(())
+    }
 }
 
 // TODO:implement consume event instn  and settle fund instn
@@ -1062,18 +1102,56 @@ pub struct CancelOrder<'info> {
 pub struct ConsumeEvents<'info> {
     pub market: Account<'info, Market>,
 
+
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
+    // PDA jo vault se sign karega
+    /// CHECK: PDA authority only
+    #[account(
+        seeds = [b"vault_signer", market.key().as_ref()],
+        bump
+    )]
+    pub vault_signer: UncheckedAccount<'info>,
+
+    // Market vaults (source of funds)
+    #[account(mut)]
+    pub market_base_vault: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub market_quote_vault: Account<'info, AnchorTokenAccount>,
+
+    // Taker ATAs (event.owner)
+    #[account(mut)]
+    pub taker_base_ata: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub taker_quote_ata: Account<'info, AnchorTokenAccount>,
+
+    // Maker ATAs (event.counterparty)
+    #[account(mut)]
+    pub maker_base_ata: Account<'info, AnchorTokenAccount>,
+
+    #[account(mut)]
+    pub maker_quote_ata: Account<'info, AnchorTokenAccount>,
+
     #[account(
         mut,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
+        seeds = [b"open_order", market.key().as_ref(), taker.key().as_ref()],
         bump,
-        has_one = owner,
-        has_one = market
     )]
-    pub open_orders: Account<'info, OpenOrders>,
-    pub owner: Signer<'info>,
+    pub taker_open_orders: Account<'info, OpenOrders>,
+
+     #[account(
+        mut,
+        seeds = [b"open_order", market.key().as_ref(), maker.key().as_ref()],
+        bump,
+    )]
+    pub maker_open_order: Account<'info, OpenOrders>,
+
+    pub taker: SystemAccount<'info>,
+    pub maker: SystemAccount<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
