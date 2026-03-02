@@ -1,9 +1,10 @@
 use std::u32;
 
 use anchor_lang::prelude::*;
+use anchor_spl::token::Transfer;
 
 use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
-use crate::events::*;
+use crate::{ConsumeEvents, events::*};
 use crate::state::{
     EventQueue, EventType, MatchOutcome, MatchResult, OrderStatus, OrderType, QueueEvent,
 };
@@ -444,6 +445,7 @@ pub fn match_ioc_orders(
     side: Side,
     order: &mut Order,
     market_pubkey: &Pubkey,
+    event_queue: &mut EventQueue,
 ) -> Result<MatchOutcome> {
     match side {
         Side::Ask => {
@@ -514,6 +516,19 @@ pub fn match_ioc_orders(
                     market_pubkey: *market_pubkey,
                 });
             }
+            let event = QueueEvent {
+                event_type: if maker_filled { EventType::Fill } else { EventType::PartialFill },
+                order_id: order.order_id,
+                owner: order.owner,
+                counterparty: maker_owner,
+                side,
+                price: execution_price,
+                base_quantity: available_qty,
+                client_order_id: order.client_order_id,
+                timestamp: Clock::get()?.unix_timestamp,
+                market_pubkey: *market_pubkey,
+            };
+            event_queue.insert_event(event)?;
             Ok(MatchOutcome::Matched(MatchResult {
                 maker_qty,
                 taker_qty: order.quantity,
@@ -603,6 +618,113 @@ pub fn match_ioc_orders(
         }
     }
 }
+pub fn settle_amounts(
+    accounts: &ConsumeEvents,
+    event:&QueueEvent,
+    vault_signer_bump:u8
+)->Result<()>{
+    let market =  accounts.market.key();
+    let seeds = &[
+        b"vault_signer",
+        market.as_ref(),
+        &[vault_signer_bump]
+    ];
+    let signer_seeds = &[&seeds[..]];
+    let base_transfer_amount = event
+                            .base_quantity
+                            .checked_mul(accounts.market.base_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+    
+    let quote_transfer_amount = event
+                            .base_quantity
+                            .checked_mul(event.price)
+                            .ok_or(MarketError::MathOverflow)?
+                            .checked_mul(accounts.market.quote_lot_size)
+                            .ok_or(MarketError::MathOverflow)?;
+    match event.side {
+        Side::Ask => {
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    accounts.token_program.to_account_info(), 
+                    Transfer{
+                        from:accounts.market_base_vault.to_account_info(),
+                        to:accounts.maker_base_ata.to_account_info(),
+                        authority:accounts.vault_signer.to_account_info()
+                    }, 
+                    signer_seeds
+                ),
+                base_transfer_amount
+            )?;
+            msg!("Settled: base {} → maker", base_transfer_amount);
+            // transferring taker tokens
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    accounts.token_program.to_account_info(), 
+                    Transfer { 
+                        from: accounts.market_quote_vault.to_account_info(), 
+                        to: accounts.taker_quote_ata.to_account_info(), 
+                        authority: accounts.vault_signer.to_account_info()
+                    }, 
+                    signer_seeds
+                ),
+                quote_transfer_amount
+            )?;
+            msg!("Settled: quote {} → taker", quote_transfer_amount);
+        }
+        Side::Bid => {
+            // settling taker's quote tokens
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    accounts.token_program.to_account_info(), 
+                    Transfer { 
+                        from: accounts.market_base_vault.to_account_info(), 
+                        to: accounts.taker_base_ata.to_account_info(), 
+                        authority: accounts.vault_signer.to_account_info()
+                    }, 
+                    signer_seeds
+                ),
+                base_transfer_amount
+            )?;
+            // settling maker's base tokens
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                accounts.token_program.to_account_info(), 
+                    Transfer { 
+                        from: accounts.market_quote_vault.to_account_info(), 
+                        to: accounts.maker_quote_ata.to_account_info(), 
+                        authority: accounts.vault_signer.to_account_info()
+                    }, 
+                    signer_seeds
+                ),
+                quote_transfer_amount
+            )?;
+        }
+    }
+    Ok(())
+}
+
+// Update order status in the open_orders account for the given order_id
+pub fn update_order_status(
+    open_orders: &mut OpenOrders,
+    event: &QueueEvent,
+    new_status: OrderStatus,
+) -> Result<()> {
+    if let Some(order) = open_orders
+        .orders
+        .iter_mut()
+        .find(|o| o.order_id == event.order_id)
+    {
+        order.order_status = new_status;
+        msg!(
+            "Order {} status updated to {:?}",
+            event.order_id,
+            new_status
+        );
+    }
+    // If order not found it may already be cleaned up — not a hard error
+    Ok(())
+}
+
 impl EventQueue {
     pub const CAPACITY: usize = 32;
     pub fn get_event_by_order_id(&mut self, order_id: &u64) -> Result<Option<&QueueEvent>> {
@@ -629,10 +751,6 @@ impl EventQueue {
         }
 
         self.head = (self.head + 1) % Self::CAPACITY as u32;
-        println!(
-            ">>>>event inserted!:{:?}  and order id : {:?}",
-            self, self.events[0]
-        );
         Ok(())
     }
     pub fn pop_front(&mut self) -> Option<QueueEvent> {
@@ -652,33 +770,3 @@ impl EventQueue {
         Some(&self.events[self.tail as usize])
     }
 }
-
-// flow of the events
-// first order place event is emitted!
-// event emitted and grab at the indexer
-// event sent to the frontend via websockets
-// checked side is this "ask" or "bid"
-// pushed into the temp storage of orders by id
-// pushed in the price level if price not exist
-// if exist we will increase the quantity and adjust the total price
-// #### order matching flow #####
-// order matched successfully
-// suppose order filled event is emitted
-// event emitted from the smart contract and fill qty is 5 @ price 102
-// event grabbed at the indexer
-// emmited to the frontend using sockets
-// find order by order id in temp storage and delete that mapping
-// and in price level find the price level
-// substract the quantity and adjust the total accordingly
-// if quantity becomes zero delete that mapping
-
-// i am sending order fill or order partial events
-// i am seding fill qty aand maker order id and taker order id
-// thing to note , both orders ar present at the frontend becasue we pushed order to the slab
-// let supose  place order data event is not emitting at the starting
-// order fill event will be emitted first
-// maker's ui data will be updated first
-// and then place order emitted and pushed into the slab and event grabbed and sent to the frontend
-// suppose side is "ask" and find price level let suppose 100
-// and if remaining qyt is 0 , we will not pushing into the ui slab
-//
