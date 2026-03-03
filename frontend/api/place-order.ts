@@ -7,7 +7,7 @@ import { BN } from "@coral-xyz/anchor"
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useMutation } from "@tanstack/react-query"
-
+// place limit order 
 export const PlaceOrder = () => {
   const { program } = useDexProgram()
   const {publicKey} = useWallet()
@@ -51,7 +51,7 @@ export const PlaceOrder = () => {
         }
         // sending user's price at the smart contract , will convert it into quote lot 
         const placeOrderTx = await program.methods
-          .placeOrder(
+          .placeLimitOrder(
             new BN(convertedBaseLots),
             new BN(clientOrderId),
             new BN(convertedQuotePrice),
