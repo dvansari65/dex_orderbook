@@ -21,7 +21,7 @@ pub enum OrderError {
     #[msg("Order can be match , So rejecting the order!")]
     WouldMatchImmediately,
     #[msg("Invalid Order type!")]
-    InvalidOrderType
+    InvalidOrderType,
 }
 
 #[error_code]
@@ -51,9 +51,26 @@ pub enum MarketError {
     #[msg("Invalid Quote Price!")]
     InvalidPrice,
     #[msg("Invalid base quantity!")]
-    InvalidBaseQty
+    InvalidBaseQty,
+    #[msg("Invalid taker token account!")]
+    InvalidTakerAccount,
+    #[msg("Invalid maker token account!")]
+    InvalidMakerAccount,
+    #[msg("Invalid open orders account!")]
+    InvalidOpenOrders,
+    #[msg("Invalid event queue account!")]
+    InvalidEventQueue,
+    #[msg("Invalid vault account!")]
+    InvalidVault,
+    #[msg("Event queue underflow!")]
+    EventQueueUnderflow,
+    #[msg("There is no events in Event queue!")]
+    EventQueueEmpty,
+    #[msg("Sequence over flow!")]
+    SeqOverflow,
+    #[msg("Maker order missing!")]
+    MissingMakerOpenOrder
 }
-
 
 #[error_code]
 pub enum OpenOrderError {
@@ -66,14 +83,15 @@ pub enum OpenOrderError {
     #[msg("Base quantity is too low!")]
     UnderFlow,
     #[msg("Base quantity is too large!")]
-    OverFlow
+    OverFlow,
+    #[msg("Invalid Maker open order!")]
+    InvalidMakerOpenOrder
 }
-
 
 #[error_code]
 pub enum EventError {
-   #[msg("Order not found in event queue!")]
-   OrderNotFound
+    #[msg("Order not found in event queue!")]
+    OrderNotFound,
 }
 
 #[error_code]
@@ -103,11 +121,11 @@ pub enum ErrorCode {
     #[msg("Over flow error!")]
     OverFlow,
     #[msg("Invalid price!")]
-    InvalidPrice
+    InvalidPrice,
 }
 
 #[error_code]
 pub enum EventQueueError {
     #[msg("Queue full!")]
-    QueueFull
+    QueueFull,
 }
