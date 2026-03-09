@@ -5,6 +5,7 @@ use crate::states::order_schema::{ enums::Side};
 #[account]
 #[derive(InitSpace)]
 pub struct Market {
+    pub global_seq: u64,
     pub next_order_id:u64,          // order id better than unix time stamp
     pub base_mint: Pubkey,          // Mint of base token (e.g., SOL)
     pub quote_mint: Pubkey,         // Mint of quote token (e.g., USDC)
@@ -100,6 +101,7 @@ pub enum OrderStatus {
 }
 
 // Event queue structures for on-chain storage
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EventType {
@@ -114,8 +116,11 @@ pub enum EventType {
     TimeInForce = 8,
 }
 
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Debug)]
 pub struct QueueEvent {
+    pub global_seq: u64,      // ordering guarantee for indexer
+    pub maker_order_id: u64,
     pub event_type: EventType,
     pub order_id: u64,
     pub owner: Pubkey,
@@ -126,7 +131,10 @@ pub struct QueueEvent {
     pub client_order_id: u64,
     pub timestamp: i64,
     pub market_pubkey: Pubkey,
+    pub taker_remaining_qty:u64,
+    pub maker_remaining_qty:u64
 }
+
 
 #[account]
 #[derive(InitSpace,Debug)]
@@ -134,7 +142,7 @@ pub struct EventQueue {
     pub head: u32,
     pub tail: u32,
     pub count: u32,
-    #[max_len(32)]
+    #[max_len(28)]    
     pub events: Vec<QueueEvent>,
 }
 
@@ -142,8 +150,35 @@ pub struct EventQueue {
 pub struct MatchResult {
     pub maker_qty:u64 , // this is maker's remained qty after order matching
     pub taker_qty:u64,  // this is taker's remained qty after order matching
+    pub execution_price:u64,
+    pub counter_party:Pubkey
 }
 pub enum MatchOutcome {
     NoMatch(&'static str),   // reason why no match happened
     Matched(MatchResult),     // actual result
+}
+
+#[derive(Clone, Copy)]
+pub struct OrderParams {
+    pub base_qty: u64,
+    pub price: u64,
+    pub order_type: OrderType,
+    pub client_order_id: u64,
+    pub side: Side,
+}
+
+#[derive(Clone, Copy)]
+pub struct LockResult {
+    pub base_lots: u64,
+    pub quote_lots: u64,
+    pub amount_locked: u64,
+}
+
+pub struct FillRecord {
+    pub maker_order_id: u64,
+    pub maker_owner: Pubkey,
+    pub fill_qty: u64,
+    pub execution_price: u64,
+    pub maker_fully_filled: bool,
+    pub maker_remaining_qty: u64,
 }
