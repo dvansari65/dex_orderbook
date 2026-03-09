@@ -1,12 +1,10 @@
 use std::u32;
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::Transfer;
 
 use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
-use crate::{ConsumeEvents, events::*};
 use crate::state::{
-    EventQueue, EventType, MatchOutcome, MatchResult, OrderStatus, OrderType, QueueEvent,
+    EventQueue, FillRecord, Market, OrderStatus, OrderType, QueueEvent
 };
 
 use crate::state::{Node, OpenOrders, Order, Slab};
@@ -230,500 +228,28 @@ impl OpenOrders {
     }
 }
 
-pub fn match_orders(
+// Checks whether a PostOnly order would match immediately.
+// Returns true  → order WOULD cross → reject it.
+// Returns false → order is safe → insert into book.
+// Pure read — does not mutate anything.
+pub fn would_match_post_only(
     side: Side,
-    order: &mut Order,
-    opposite_slab: &mut Slab,
-    market_pubkey: &Pubkey,
-    event_queue: &mut EventQueue,
-) -> Result<MatchOutcome> {
-    // 1. Identify the correct side to match against
-    let mut total_quote_qty = 0u64;
-    let mut maker_qty_remained = 0u64;
-    let mut filled_price = 0u64; // price at which order get placed
-    let mut maker_key = Default::default();
-    while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
-        // We scope the borrow of 'best_opposite' so we can drop it before calling 'remove_order'
-        let (fill_qty, execution_price, maker_id, maker_owner, maker_filled, quantity_remained) = {
-            let best_opposite = opposite_slab.nodes.first_mut().unwrap();
-            maker_key = best_opposite.owner;
-            // 3. Price Cross Check
-            // A match only happens if the Taker's price "crosses" the Maker's price.
-            let can_match = match side {
-                Side::Ask => order.price <= best_opposite.price, // Selling for 10 into a Bid for 11
-                Side::Bid => order.price >= best_opposite.price, // Buying for 10 into an Ask for 9
-            };
-            if !can_match {
-                break;
-            }
-            let fill_qty = best_opposite.quantity.min(order.quantity);
-            let execution_price = best_opposite.price; // Trade executes at the price already on the book
-            msg!("execution price is {}", execution_price.to_string());
-            // Update quantities in place
-            best_opposite.quantity = best_opposite
-                .quantity
-                .checked_sub(fill_qty)
-                .ok_or(OrderError::UnderFlow)?;
-
-            order.quantity = order
-                .quantity
-                .checked_sub(fill_qty)
-                .ok_or(OrderError::UnderFlow)?;
-            let quantity_remained = best_opposite.quantity;
-    
-            (
-                fill_qty,
-                execution_price,
-                best_opposite.order_id.clone(),
-                best_opposite.owner,
-                best_opposite.quantity == 0,
-                quantity_remained,
-            )
-        };
-        // 4. Calculate Quote Volume
-        let quote_qty = fill_qty
-            .checked_mul(execution_price)
-            .ok_or(OrderError::OverFlow)?;
-        // created this variable to return the filled quantity to get this qty in the instruction
-
-        total_quote_qty = total_quote_qty
-            .checked_add(quote_qty)
-            .ok_or(OrderError::OverFlow)?;
-        // 5. Emit Event & Update Status
-        // We emit ONE event per match. Your indexer uses this to update both sides.
-        let event_type = if maker_filled {
-            EventType::Fill
-        } else {
-            EventType::PartialFill
-        };
-        if event_type == EventType::Fill {
-            emit!(OrderFillEvent {
-                maker: maker_owner,
-                maker_order_id: maker_id,
-                taker: order.owner,
-                taker_order_id: order.order_id,
-                side,
-                price: execution_price,
-                base_lots_filled: fill_qty,
-                base_lots_remaining: quantity_remained,
-                timestamp: Clock::get()?.unix_timestamp,
-                market_pubkey: *market_pubkey
-            });
-            let removed_order = opposite_slab.remove_order(&maker_id)?;
-            msg!(
-                "order ID:{} removed from the Slab, Order status{:?}",
-                removed_order.order_id,
-                removed_order.order_status
-            );
-            msg!(
-                "order fill event emitted from match order function:market key {} and maker key:{}",
-                market_pubkey,
-                maker_owner
-            );
-        } else {
-            emit!(OrderPartialFillEvent {
-                maker: maker_owner,
-                maker_order_id: maker_id,
-                taker: order.owner,
-                taker_order_id: order.order_id,
-                side,
-                price: execution_price,
-                base_lots_filled: fill_qty,
-                base_lots_remaining: quantity_remained,
-                timestamp: Clock::get()?.unix_timestamp,
-                market_pubkey: *market_pubkey
-            });
-        }
-        let event = QueueEvent {
-            event_type,
-            order_id: order.order_id.clone(),
-            owner: order.owner,
-            counterparty: maker_owner,
-            side: side,
-            price: execution_price,
-            base_quantity: fill_qty,
-            client_order_id: order.client_order_id,
-            timestamp: Clock::get()?.unix_timestamp,
-            market_pubkey: *market_pubkey,
-        };
-        event_queue.insert_event(event)?;
-        maker_qty_remained = quantity_remained;
-        filled_price = execution_price;
-    }
-
-    Ok(MatchOutcome::Matched(MatchResult {
-        taker_qty: order.quantity,
-        maker_qty: maker_qty_remained,
-        execution_price: filled_price,
-        counter_party:maker_key
-    }))
-}
-
-pub fn match_post_only_orders(
+    order_price: u64,
     asks: &Slab,
     bids: &Slab,
-    side: Side,
-    order: &Order,
-) -> Result<MatchOutcome> {
+) -> bool {
     match side {
-        Side::Ask => {
-            // Check if there are any bids to match against
-            if bids.nodes.is_empty() {
-                // No bids exist - order CANNOT match, so it's SAFE for post-only
-                return Ok(MatchOutcome::NoMatch("No bids exist - order won't match"));
-            }
-
-            let best_bid = bids.nodes.first().ok_or(OrderError::InvalidNode)?;
-
-            // For Ask (sell): order would match if price <= best_bid
-            if order.price <= best_bid.price {
-                // Order WOULD match immediately - REJECT for post-only
-                msg!(
-                    "Ask price {} <= best bid {} - would match immediately. REJECTING",
-                    order.price,
-                    best_bid.price
-                );
-                return Ok(MatchOutcome::Matched(MatchResult {
-                    maker_qty: 0, // These can be 0 since we're just using Matched as rejection signal
-                    taker_qty: 0,
-                    execution_price: 0,
-                    counter_party:best_bid.owner
-                }));
-            } else {
-                // Order would NOT match - SAFE for post-only
-                msg!(
-                    "Ask price {} > best bid {} - won't match. ACCEPTING",
-                    order.price,
-                    best_bid.price
-                );
-                return Ok(MatchOutcome::NoMatch(
-                    "Order won't match - safe for post-only",
-                ));
-            }
-        }
-
-        Side::Bid => {
-            // Check if there are any asks to match against
-            if asks.nodes.is_empty() {
-                // No asks exist - order CANNOT match, so it's SAFE for post-only
-                return Ok(MatchOutcome::NoMatch("No asks exist - order won't match"));
-            }
-
-            let best_ask = asks.nodes.first().ok_or(OrderError::InvalidNode)?;
-
-            // For Bid (buy): order would match if price >= best_ask
-            if order.price >= best_ask.price {
-                // Order WOULD match immediately - REJECT for post-only
-                msg!(
-                    "Bid price {} >= best ask {} - would match immediately. REJECTING",
-                    order.price,
-                    best_ask.price
-                );
-                return Ok(MatchOutcome::Matched(MatchResult {
-                    maker_qty: 0,
-                    taker_qty: 0,
-                    execution_price: 0,
-                    counter_party:best_ask.owner
-                }));
-            } else {
-                // Order would NOT match - SAFE for post-only
-                msg!(
-                    "Bid price {} < best ask {} - won't match. ACCEPTING",
-                    order.price,
-                    best_ask.price
-                );
-                return Ok(MatchOutcome::NoMatch(
-                    "Order won't match - safe for post-only",
-                ));
-            }
-        }
+        Side::Ask => bids
+            .nodes
+            .first()
+            .map_or(false, |best_bid| order_price <= best_bid.price),
+        Side::Bid => asks
+            .nodes
+            .first()
+            .map_or(false, |best_ask| order_price >= best_ask.price),
     }
 }
-pub fn match_ioc_orders(
-    asks: &mut Slab,
-    bids: &mut Slab,
-    side: Side,
-    order: &mut Order,
-    market_pubkey: &Pubkey,
-    event_queue: &mut EventQueue,
-) -> Result<MatchOutcome> {
-    match side {
-        Side::Ask => {
-            if bids.nodes.is_empty() {
-                return Ok(MatchOutcome::NoMatch(
-                    "opposite slab is empty, order can't be matched!",
-                ));
-            }
-            let (
-                execution_price,
-                maker_order_id,
-                maker_owner,
-                available_qty,
-                maker_qty,
-                maker_filled,
-            ) = {
-                let best_bid = bids.nodes.first_mut().unwrap();
-                if order.price > best_bid.price {
-                    return Ok(MatchOutcome::NoMatch(
-                        "ask price too high to cross best bid, no match",
-                    ));
-                }
-                let available_qty = best_bid.quantity.min(order.quantity);
-                let price = best_bid.price;
-                order.quantity = order
-                    .quantity
-                    .checked_sub(available_qty)
-                    .ok_or(OrderError::UnderFlow)?;
-                best_bid.quantity = best_bid
-                    .quantity
-                    .checked_sub(available_qty)
-                    .ok_or(SlabError::UnderFlow)?;
-                (
-                    price,
-                    best_bid.order_id,
-                    best_bid.owner,
-                    available_qty,
-                    best_bid.quantity,
-                    best_bid.quantity == 0,
-                )
-            };
 
-            if maker_filled {
-                emit!(OrderFillEvent {
-                    maker: maker_owner,
-                    maker_order_id,
-                    taker: order.owner,
-                    taker_order_id: order.order_id,
-                    side,
-                    price: order.price,
-                    base_lots_filled: available_qty,
-                    base_lots_remaining: maker_qty,
-                    timestamp: Clock::get()?.unix_timestamp,
-                    market_pubkey: *market_pubkey,
-                });
-                bids.remove_order(&maker_order_id)?;
-            } else {
-                emit!(OrderPartialFillEvent {
-                    maker: maker_owner,
-                    maker_order_id,
-                    taker: order.owner,
-                    taker_order_id: order.order_id,
-                    side,
-                    price: order.price,
-                    base_lots_filled: available_qty,
-                    base_lots_remaining: maker_qty,
-                    timestamp: Clock::get()?.unix_timestamp,
-                    market_pubkey: *market_pubkey,
-                });
-            }
-            let event = QueueEvent {
-                event_type: if maker_filled { EventType::Fill } else { EventType::PartialFill },
-                order_id: order.order_id,
-                owner: order.owner,
-                counterparty: maker_owner,
-                side,
-                price: execution_price,
-                base_quantity: available_qty,
-                client_order_id: order.client_order_id,
-                timestamp: Clock::get()?.unix_timestamp,
-                market_pubkey: *market_pubkey,
-            };
-            event_queue.insert_event(event)?;
-            Ok(MatchOutcome::Matched(MatchResult {
-                maker_qty,
-                taker_qty: order.quantity,
-                execution_price,
-                counter_party:maker_owner
-            }))
-        }
-
-        Side::Bid => {
-            if asks.nodes.is_empty() {
-                return Ok(MatchOutcome::NoMatch(
-                    "opposite slab is empty, order can't be matched!",
-                ));
-            }
-            let (
-                execution_price,
-                maker_order_id,
-                maker_owner,
-                available_qty,
-                maker_qty,
-                maker_filled,
-            ) = {
-                let best_ask = asks.nodes.first_mut().unwrap();
-                if order.price < best_ask.price {
-                    return Ok(MatchOutcome::NoMatch(
-                        "bid price too low to cross best ask, no match",
-                    ));
-                }
-                let available_qty = best_ask.quantity.min(order.quantity);
-                let execution_price = best_ask.price;
-                order.quantity = order
-                    .quantity
-                    .checked_sub(available_qty)
-                    .ok_or(OrderError::UnderFlow)?;
-                best_ask.quantity = best_ask
-                    .quantity
-                    .checked_sub(available_qty)
-                    .ok_or(SlabError::UnderFlow)?;
-                (
-                    execution_price,
-                    best_ask.order_id,
-                    best_ask.owner,
-                    available_qty,
-                    best_ask.quantity,
-                    best_ask.quantity == 0,
-                )
-            };
-
-            match maker_filled {
-                true => {
-                    asks.remove_order(&maker_order_id)?;
-                    emit!(OrderFillEvent {
-                        maker: maker_owner,
-                        maker_order_id,
-                        taker: order.owner,
-                        taker_order_id: order.order_id,
-                        side,
-                        price: order.price,
-                        base_lots_filled: available_qty,
-                        base_lots_remaining: 0,
-                        timestamp: Clock::get()?.unix_timestamp,
-                        market_pubkey: *market_pubkey,
-                    });
-                }
-                false => {
-                    emit!(OrderPartialFillEvent {
-                        maker: maker_owner,
-                        maker_order_id,
-                        taker: order.owner,
-                        taker_order_id: order.order_id,
-                        side,
-                        price: order.price,
-                        base_lots_filled: available_qty,
-                        base_lots_remaining: maker_qty,
-                        timestamp: Clock::get()?.unix_timestamp,
-                        market_pubkey: *market_pubkey,
-                    });
-                }
-            }
-
-            Ok(MatchOutcome::Matched(MatchResult {
-                maker_qty,
-                taker_qty: order.quantity,
-                execution_price,
-                counter_party:maker_owner
-            }))
-        }
-    }
-}
-pub fn settle_amounts(
-    accounts: &ConsumeEvents,
-    event:&QueueEvent,
-    vault_signer_bump:u8
-)->Result<()>{
-    let market =  accounts.market.key();
-    let seeds = &[
-        b"vault_signer",
-        market.as_ref(),
-        &[vault_signer_bump]
-    ];
-    let signer_seeds = &[&seeds[..]];
-    let base_transfer_amount = event
-                            .base_quantity
-                            .checked_mul(accounts.market.base_lot_size)
-                            .ok_or(MarketError::MathOverflow)?;
-    
-    let quote_transfer_amount = event
-                            .base_quantity
-                            .checked_mul(event.price)
-                            .ok_or(MarketError::MathOverflow)?
-                            .checked_mul(accounts.market.quote_lot_size)
-                            .ok_or(MarketError::MathOverflow)?;
-    match event.side {
-        Side::Ask => {
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    accounts.token_program.to_account_info(), 
-                    Transfer{
-                        from:accounts.market_base_vault.to_account_info(),
-                        to:accounts.maker_base_ata.to_account_info(),
-                        authority:accounts.vault_signer.to_account_info()
-                    }, 
-                    signer_seeds
-                ),
-                base_transfer_amount
-            )?;
-            msg!("Settled: base {} → maker", base_transfer_amount);
-            // transferring taker tokens
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    accounts.token_program.to_account_info(), 
-                    Transfer { 
-                        from: accounts.market_quote_vault.to_account_info(), 
-                        to: accounts.taker_quote_ata.to_account_info(), 
-                        authority: accounts.vault_signer.to_account_info()
-                    }, 
-                    signer_seeds
-                ),
-                quote_transfer_amount
-            )?;
-            msg!("Settled: quote {} → taker", quote_transfer_amount);
-        }
-        Side::Bid => {
-            // settling taker's quote tokens
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                    accounts.token_program.to_account_info(), 
-                    Transfer { 
-                        from: accounts.market_base_vault.to_account_info(), 
-                        to: accounts.taker_base_ata.to_account_info(), 
-                        authority: accounts.vault_signer.to_account_info()
-                    }, 
-                    signer_seeds
-                ),
-                base_transfer_amount
-            )?;
-            // settling maker's base tokens
-            anchor_spl::token::transfer(
-                CpiContext::new_with_signer(
-                accounts.token_program.to_account_info(), 
-                    Transfer { 
-                        from: accounts.market_quote_vault.to_account_info(), 
-                        to: accounts.maker_quote_ata.to_account_info(), 
-                        authority: accounts.vault_signer.to_account_info()
-                    }, 
-                    signer_seeds
-                ),
-                quote_transfer_amount
-            )?;
-        }
-    }
-    Ok(())
-}
-
-// Update order status in the open_orders account for the given order_id
-pub fn update_order_status(
-    open_orders: &mut OpenOrders,
-    event: &QueueEvent,
-    new_status: OrderStatus,
-) -> Result<()> {
-    if let Some(order) = open_orders
-        .orders
-        .iter_mut()
-        .find(|o| o.order_id == event.order_id)
-    {
-        order.order_status = new_status;
-        msg!(
-            "Order {} status updated to {:?}",
-            event.order_id,
-            new_status
-        );
-    }
-    // If order not found it may already be cleaned up — not a hard error
-    Ok(())
-}
 
 impl EventQueue {
     pub const CAPACITY: usize = 32;
@@ -769,4 +295,157 @@ impl EventQueue {
         }
         Some(&self.events[self.tail as usize])
     }
+}
+
+pub fn create_order(
+    order_type: OrderType,
+    side: Side,
+    base_lots: u64,
+    owner: Pubkey,
+    order_id: u64,
+    client_order_id: u64,
+    quote_lots: u64,
+    status: OrderStatus,
+) -> Order {
+    Order {
+        order_type,
+        side,
+        quantity: base_lots,
+        owner,
+        order_id,
+        client_order_id,
+        price: quote_lots,
+        order_status: status,
+    }
+}
+
+pub fn get_next_order_id(market: &mut Market) -> Result<u64> {
+    let order_id = market.next_order_id;
+    market.next_order_id = market
+        .next_order_id
+        .checked_add(1)
+        .ok_or(MarketError::OrderIdOverFlow)?;
+    Ok(order_id)
+}
+
+pub fn get_order_book_sides<'info>(
+    asks: &'info mut Account<'info, Slab>,
+    bids: &'info mut Account<'info, Slab>,
+    side: Side,
+) -> (&'info mut Account<'info, Slab>, &'info mut Account<'info, Slab>) {
+    match side {
+        Side::Ask => (asks, bids),
+        Side::Bid => (bids, asks),
+    }
+}
+
+// Match taker order against the opposite slab.
+// Mutates order.quantity and slab nodes in place.
+// Returns all fills that occurred.
+// Caller handles: credit_fill(), dispatch_fill_event(), slab insert.
+pub fn try_match(
+    side: Side,
+    order: &mut Order,
+    opposite_slab: &mut Slab,
+) -> Result<Vec<FillRecord>> {
+    let mut fills: Vec<FillRecord> = Vec::new();
+
+    while !opposite_slab.nodes.is_empty() && order.quantity > 0 {
+        let fill = {
+            let best = opposite_slab
+                .nodes
+                .first_mut()
+                .ok_or(OrderError::InvalidNode)?;
+
+            let can_match = match side {
+                Side::Ask => order.price <= best.price,
+                Side::Bid => order.price >= best.price,
+            };
+
+            if !can_match {
+                break;
+            }
+
+            let fill_qty = best.quantity.min(order.quantity);
+            let execution_price = best.price;
+
+            best.quantity = best
+                .quantity
+                .checked_sub(fill_qty)
+                .ok_or(OrderError::UnderFlow)?;
+
+            order.quantity = order
+                .quantity
+                .checked_sub(fill_qty)
+                .ok_or(OrderError::UnderFlow)?;
+
+            FillRecord {
+                maker_order_id: best.order_id,
+                maker_owner: best.owner,
+                fill_qty,
+                execution_price,
+                maker_fully_filled: best.quantity == 0,
+                maker_remaining_qty: best.quantity,
+            }
+        };
+
+        if fill.maker_fully_filled {
+            opposite_slab.remove_order(&fill.maker_order_id)?;
+        }
+
+        fills.push(fill);
+    }
+    Ok(fills)
+}
+
+pub fn try_match_ioc(
+    side: Side,
+    order: &mut Order,
+    opposite_slab: &mut Slab,
+) -> Result<Option<FillRecord>> {
+    if opposite_slab.nodes.is_empty() {
+        return Ok(None);
+    }
+
+    let best = opposite_slab
+        .nodes
+        .first_mut()
+        .ok_or(OrderError::InvalidNode)?;
+
+    let can_match = match side {
+        Side::Ask => order.price <= best.price,
+        Side::Bid => order.price >= best.price,
+    };
+
+    if !can_match {
+        return Ok(None);
+    }
+
+    let fill_qty = best.quantity.min(order.quantity);
+    let execution_price = best.price;
+
+    best.quantity = best
+        .quantity
+        .checked_sub(fill_qty)
+        .ok_or(OrderError::UnderFlow)?;
+
+    order.quantity = order
+        .quantity
+        .checked_sub(fill_qty)
+        .ok_or(OrderError::UnderFlow)?;
+
+    let fill = FillRecord {
+        maker_order_id: best.order_id,
+        maker_owner: best.owner,
+        fill_qty,
+        execution_price,
+        maker_fully_filled: best.quantity == 0,
+        maker_remaining_qty: best.quantity,
+    };
+
+    if fill.maker_fully_filled {
+        opposite_slab.remove_order(&fill.maker_order_id)?;
+    }
+
+    Ok(Some(fill))
 }
