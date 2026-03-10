@@ -1,4 +1,4 @@
-import { MARKET_PUBKEY, MAX_BASE_SIZE, MAX_QUOTE_SIZE } from "@/constants/market"
+import { MARKET_PUBKEY,BASE_TOKEN_DECIMALS,QUOTE_TOKEN_DECIMALS } from "@/constants/market"
 import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
 import { useDexProgram } from "@/hooks/useDexProgram"
 import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
@@ -47,8 +47,8 @@ export const PlaceIOCOrder = () => {
         }
         
         // Convert quantities
-        const convertedBaseLots = MAX_BASE_SIZE * maxBaseSize
-        const convertedQuotePrice = MAX_QUOTE_SIZE * price
+        const convertedBaseLots = BASE_TOKEN_DECIMALS * maxBaseSize
+        const convertedQuotePrice = QUOTE_TOKEN_DECIMALS * price
         
         if (!program) {
           console.log("Program not found!")
@@ -56,7 +56,7 @@ export const PlaceIOCOrder = () => {
         }
         
         // Place IOC order - using placeIocOrder method
-        const placeIocOrderTx = await program.methods
+        const placeIocOrderTx = await (program.methods as any)
           .placeIocOrder(
             new BN(convertedBaseLots),
             new BN(convertedQuotePrice),

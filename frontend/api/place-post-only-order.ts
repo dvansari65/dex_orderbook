@@ -1,4 +1,4 @@
-import { MARKET_PUBKEY, MAX_BASE_SIZE, MAX_QUOTE_SIZE } from "@/constants/market"
+import { BASE_TOKEN_DECIMALS, MARKET_PUBKEY, QUOTE_TOKEN_DECIMALS } from "@/constants/market"
 import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
 import { useDexProgram } from "@/hooks/useDexProgram"
 import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
@@ -47,8 +47,8 @@ export const PlacePostOnlyOrder = () => {
         }
         
         // Convert quantities
-        const convertedBaseLots = MAX_BASE_SIZE * maxBaseSize
-        const convertedQuotePrice = MAX_QUOTE_SIZE * price
+        const convertedBaseLots = BASE_TOKEN_DECIMALS * maxBaseSize
+        const convertedQuotePrice = QUOTE_TOKEN_DECIMALS * price
         
         if (!program) {
           console.log("Program not found!")
@@ -56,7 +56,7 @@ export const PlacePostOnlyOrder = () => {
         }
         
         // Place Post-Only order
-        const placePostOnlyOrderTx = await program.methods
+        const placePostOnlyOrderTx = await (program.methods as any)
           .placePostOnlyOrder(
             new BN(convertedBaseLots),
             new BN(convertedQuotePrice),
