@@ -129,3 +129,19 @@ pub enum EventQueueError {
     #[msg("Queue full!")]
     QueueFull,
 }
+
+#[error_code]
+pub enum ConsumeEventsError {
+    #[msg("remaining_accounts count must equal events_to_process * 4")]
+    InvalidRemainingAccountsCount,
+    #[msg("Taker base ATA does not match expected")]
+    InvalidTakerBaseAta,
+    #[msg("Taker quote ATA does not match expected")]
+    InvalidTakerQuoteAta,
+    #[msg("Maker base ATA does not match expected")]
+    InvalidMakerBaseAta,
+    #[msg("Maker quote ATA does not match expected")]
+    InvalidMakerQuoteAta,
+    #[msg("Math overflow in settlement calculation")]
+    MathOverflow,
+}
