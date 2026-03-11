@@ -178,7 +178,6 @@ pub fn dispatch_event(
     market: &mut Market,
     event_queue: &mut EventQueue,
     params: EventParams,
-    want_to_push_into_queue:bool
 ) -> Result<()> {
     // 1. Increment global sequence
     let seq = market
@@ -294,8 +293,12 @@ pub fn dispatch_event(
         }
     }
 
-    // 3. Insert into on-chain ring buffer
-    if want_to_push_into_queue {
+    let is_valid_event = 
+                            params.event_type == EventType::Cancel || 
+                            params.event_type == EventType::PartialFill || 
+                            params.event_type == EventType::Fill ;
+
+    if is_valid_event {
         let event = QueueEvent {
             global_seq: seq,
             maker_order_id: params.maker_order_id,
@@ -314,7 +317,6 @@ pub fn dispatch_event(
         };
         event_queue.insert_event(event)?;
     }
-
     Ok(())
 }
 
@@ -334,7 +336,6 @@ pub fn dispatch_fill_event(
     taker_client_order_id: u64,
     taker_side: Side,
     market_pubkey: Pubkey,
-    want_to_push_into_queue:bool
 ) -> Result<()> {
     dispatch_event(
         market,
@@ -357,6 +358,5 @@ pub fn dispatch_fill_event(
             maker_remaining_qty: fill.maker_remaining_qty,
             taker_remaining_qty:0
         },
-        want_to_push_into_queue
     )
 }
