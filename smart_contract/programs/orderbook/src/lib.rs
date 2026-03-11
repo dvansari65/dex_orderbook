@@ -26,8 +26,8 @@ pub mod orderbook {
     use crate::{
         assets::{credit_fill, lock_ask_funds, lock_bid_funds, unlock_ask_funds, unlock_bid_funds},
         error::ErrorCode,
-        events::{dispatch_event, dispatch_fill_event, EventParams},
-        helpers::{get_next_order_id, try_match, try_match_ioc, would_match_post_only},
+        events::{EventParams, dispatch_event, dispatch_fill_event},
+        helpers::{get_next_order_id, settle_cancel, settle_fill, try_match, try_match_ioc, would_match_post_only},
         states::order_schema::enums::Side,
     };
 
@@ -314,17 +314,26 @@ pub mod orderbook {
 
         match fill_opt {
             Some(fill) => {
-                // ── 3c. Emit fill event ──
-                dispatch_fill_event(
-                    market,
-                    event_queue,
-                    &fill,
-                    order_id,
-                    owner.key(),
-                    client_order_id,
+                let event_params = EventParams {
+                    event_type:if fill.maker_fully_filled {
+                        EventType::Fill
+                    }else {
+                        EventType::PartialFill
+                    },
+                    order_id: order.order_id,
+                    owner: owner.key(),
+                    counterparty: fill.maker_owner,
                     side,
-                    market_key,
-                )?;
+                    price: fill.execution_price,
+                    base_quantity: fill.fill_qty,
+                    client_order_id,
+                    market_pubkey: market_key,
+                    maker_order_id: fill.maker_order_id,
+                    maker_remaining_qty: fill.maker_remaining_qty,
+                    taker_remaining_qty: order.quantity,
+                };
+                // ── 3c. Emit fill event ──
+                dispatch_event(market, event_queue, event_params)?;
 
                 order.order_status = if order.quantity == 0 {
                     OrderStatus::Fill
@@ -337,8 +346,9 @@ pub mod orderbook {
             }
         }
 
-        // ── No fill — unlock everything back to free ──
-        let event_params = EventParams {
+       if order.quantity > 0 {
+         // ── No fill — unlock everything back to free ──
+         let event_params = EventParams {
             event_type: EventType::Cancel,
             order_id: order.order_id,
             owner: owner.key(),
@@ -359,6 +369,7 @@ pub mod orderbook {
 
         // ab jab event dispatch karenge event type pass krnege boolean ke jagah
         dispatch_event(market, event_queue, event_params)?;
+       }
         msg!(
             "place_ioc_order: id={} status={:?}",
             order_id,
@@ -600,242 +611,113 @@ pub mod orderbook {
         open_order.orders = Vec::new();
         Ok(())
     }
-    pub fn consume_events<'info>(
-        ctx: Context<'_, '_, 'info, 'info, ConsumeEvents<'info>>,
-        limit: u8,
-    ) -> Result<()> {
+    pub fn consume_event(ctx: Context<ConsumeEvent>) -> Result<()> {
         let market_key = ctx.accounts.market.key();
-
-        // Max 10 events per call — stay under compute budget
-        let limit = (limit as usize).min(10);
-        let events_to_process = limit.min(ctx.accounts.event_queue.events.len());
-
-        msg!("events to process:{}", events_to_process);
-        msg!("remaining account len:{}", ctx.remaining_accounts.len());
-
-        // Vault signer seeds for CPI signing
+        let market = &ctx.accounts.market;
+        
+        // Pop single event - atomic per instruction
+        let event = ctx
+            .accounts
+            .event_queue
+            .pop_front()
+            .ok_or(EventQueueError::QueueEmpty)?;
+    
+        // Vault signer seeds
         let seeds: &[&[u8]] = &[
             b"vault_signer",
             market_key.as_ref(),
-            &[ctx.accounts.market.vault_signer_nonce],
+            &[market.vault_signer_nonce],
         ];
         let signer_seeds = &[seeds];
-
-        // Clone what we need before the loop to avoid borrow issues
-        let base_mint = ctx.accounts.market.base_mint;
-        let quote_mint = ctx.accounts.market.quote_mint;
-        let base_lot_size = ctx.accounts.market.base_lot_size;
-        let quote_lot_size = ctx.accounts.market.quote_lot_size;
-
-        // Collect events to process — avoid borrowing event_queue in loop
-        let mut events = Vec::new();
-        for _ in 0..events_to_process {
-            if let Some(event) = ctx.accounts.event_queue.pop_front() {
-                events.push(event);
+    
+        match event.event_type {
+            EventType::Fill | EventType::PartialFill => {
+                settle_fill(
+                    &ctx,
+                    &event,
+                    market,
+                    signer_seeds,
+                )?;
             }
-        }
-        for (i, event) in events.iter().enumerate() {
-            // Base offset for this event's accounts in remaining_accounts
-            let base = i * 4;
-
-            // Get the 4 accounts for this event
-            let account_0 = &ctx.remaining_accounts[base];
-            let account_1 = &ctx.remaining_accounts[base + 1];
-            let account_2 = &ctx.remaining_accounts[base + 2];
-            let account_3 = &ctx.remaining_accounts[base + 3];
-
-            match event.event_type {
-                // ── Fill — fully filled on both sides ────────────────────────────
-                // ── PartialFill — partially filled, rest still resting ───────────
-                // Settlement is same for both — only the filled qty is transferred
-                EventType::Fill | EventType::PartialFill => {
-            
-                    // Verify all 4 ATAs match event pubkeys + market mints
-                    // This prevents crank from passing wrong accounts
-                    let expected_taker_base =
-                        get_associated_token_address(&event.owner, &base_mint);
-                    require!(
-                        account_0.key() == expected_taker_base,
-                        ConsumeEventsError::InvalidTakerBaseAta
-                    );
-
-                    let expected_taker_quote =
-                        get_associated_token_address(&event.owner, &quote_mint);
-                    require!(
-                        account_1.key() == expected_taker_quote,
-                        ConsumeEventsError::InvalidTakerQuoteAta
-                    );
-
-                    let expected_maker_base =
-                        get_associated_token_address(&event.counterparty, &base_mint);
-                    require!(
-                        account_2.key() == expected_maker_base,
-                        ConsumeEventsError::InvalidMakerBaseAta
-                    );
-
-                    let expected_maker_quote =
-                        get_associated_token_address(&event.counterparty, &quote_mint);
-                    require!(
-                        account_3.key() == expected_maker_quote,
-                        ConsumeEventsError::InvalidMakerQuoteAta
-                    );
-
-                    // Calculate raw token amounts from lots
-                    // base_qty is in base lots
-                    // quote amount = base_qty * price * quote_lot_size
-                    let base_raw = event
-                        .base_quantity
-                        .checked_mul(base_lot_size)
-                        .ok_or(ConsumeEventsError::MathOverflow)?;
-
-                    let quote_raw = event
-                        .base_quantity
-                        .checked_mul(event.price)
-                        .ok_or(ConsumeEventsError::MathOverflow)?
-                        .checked_mul(quote_lot_size)
-                        .ok_or(ConsumeEventsError::MathOverflow)?;
-
-                    match event.side {
-                        // Taker BID — taker was buying base with quote
-                        // vault → taker base ATA (taker receives base they bought)
-                        // vault → maker quote ATA (maker receives quote for their base)
-                        Side::Bid => {
-                            // Transfer base from vault to taker
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.base_vault.to_account_info(),
-                                        to: account_0.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                base_raw,
-                            )?;
-                            
-                            // Transfer quote from vault to maker
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.quote_vault.to_account_info(),
-                                        to: account_3.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                quote_raw,
-                            )?;
-                        }
-                        // Taker ASK — taker was selling base for quote
-                        // vault → taker quote ATA (taker receives quote they earned)
-                        // vault → maker base ATA (maker receives base they bought)
-                        Side::Ask => {
-                            // Transfer quote from vault to taker
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.quote_vault.to_account_info(),
-                                        to: account_1.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                quote_raw,
-                            )?;
-                    
-                            // Transfer base from vault to maker
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.base_vault.to_account_info(),
-                                        to: account_2.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                base_raw,
-                            )?;
-                        }
-                    }
-                }
-                // ── Cancel — return locked tokens back to canceller ───────────────
-                // Cancel ASK: base was locked → return base to canceller
-                // Cancel BID: quote was locked → return quote to canceller
-                EventType::Cancel => {
-                    // Verify owner ATAs
-                    let expected_owner_base =
-                        get_associated_token_address(&event.owner, &base_mint);
-                    require!(
-                        account_0.key() == expected_owner_base,
-                        ConsumeEventsError::InvalidTakerBaseAta
-                    );
-
-                    let expected_owner_quote =
-                        get_associated_token_address(&event.owner, &quote_mint);
-                    require!(
-                        account_1.key() == expected_owner_quote,
-                        ConsumeEventsError::InvalidTakerQuoteAta
-                    );
-
-                    match event.side {
-                        // Was selling base → base was locked → return base
-                        Side::Ask => {
-                            let base_raw = event
-                                .taker_remaining_qty
-                                .checked_mul(base_lot_size)
-                                .ok_or(ConsumeEventsError::MathOverflow)?;
-
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.base_vault.to_account_info(),
-                                        to: account_0.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                base_raw,
-                            )?;
-                        }
-
-                        // Was buying base → quote was locked → return quote
-                        Side::Bid => {
-                            let quote_raw = event
-                                .taker_remaining_qty
-                                .checked_mul(event.price)
-                                .ok_or(ConsumeEventsError::MathOverflow)?
-                                .checked_mul(quote_lot_size)
-                                .ok_or(ConsumeEventsError::MathOverflow)?;
-
-                            token::transfer(
-                                CpiContext::new_with_signer(
-                                    ctx.accounts.token_program.to_account_info(),
-                                    Transfer {
-                                        from: ctx.accounts.quote_vault.to_account_info(),
-                                        to: account_1.clone(),
-                                        authority: ctx.accounts.vault_signer.to_account_info(),
-                                    },
-                                    signer_seeds,
-                                ),
-                                quote_raw,
-                            )?;
-                        }
-                    }
-                }
-                // Place / Reduce / Evict / Expire / FeeCollected / TimeInForce
-                // No settlement needed — skip
-                _ => {}
+            EventType::Cancel => {
+                settle_cancel(
+                    &ctx,
+                    &event,
+                    market,
+                    signer_seeds,
+                )?;
             }
+            _ => return Err(ConsumeEventsError::NonSettleableEvent.into()),
         }
-        msg!("consume_events: processed {} events", events_to_process);
+    
+        msg!("consume_event: processed {:?}", event.event_type);
         Ok(())
+    }   
+    pub fn update_open_orders(
+        ctx: Context<UpdateOpenOrders>,
+        price_in_quote_lots:u64,
+        quantity_in_base_lots:u64,
+        side: Side
+    )->Result<()>{
+        let taker_open_order = &mut ctx.accounts.taker_open_order;
+        let maker_open_order = &mut ctx.accounts.maker_open_order;
+        let market = &mut ctx.accounts.market;
+         //  update maker open order
+         let price = price_in_quote_lots
+                        .checked_mul(quantity_in_base_lots)
+                        .ok_or(OpenOrderError::OverFlow)?
+                        .checked_mul(market.quote_lot_size)
+                        .ok_or(OpenOrderError::OverFlow)?;
+
+        let base_amount = quantity_in_base_lots
+                        .checked_mul(market.base_lot_size)
+                        .ok_or(OpenOrderError::OverFlow)?;
+        match side {
+            Side::Ask => {
+                //  first we have to update taker's open order
+                taker_open_order.base_locked =  taker_open_order
+                                    .base_locked
+                                    .checked_sub(base_amount)
+                                    .ok_or(OpenOrderError::UnderFlow)?;
+
+                taker_open_order.base_free = taker_open_order
+                                    .base_free
+                                    .checked_add(base_amount)
+                                    .ok_or(OpenOrderError::OverFlow)?;
+    
+                maker_open_order.quote_free = maker_open_order
+                                    .quote_free
+                                    .checked_add(price)
+                                    .ok_or(OpenOrderError::OverFlow)?;
+                maker_open_order.quote_locked = maker_open_order
+                                    .quote_locked
+                                    .checked_sub(price)
+                                    .ok_or(OpenOrderError::UnderFlow)?;
+            }
+            Side::Bid => {
+                taker_open_order.quote_free = taker_open_order
+                                    .quote_free
+                                    .checked_add(price)
+                                    .ok_or(OpenOrderError::OverFlow)?;
+                taker_open_order.quote_locked = taker_open_order
+                                    .quote_locked
+                                    .checked_sub(price)
+                                    .ok_or(OpenOrderError::UnderFlow)?;
+                maker_open_order.base_locked =  maker_open_order
+                                    .base_locked
+                                    .checked_sub(base_amount)
+                                    .ok_or(OpenOrderError::UnderFlow)?;
+
+                maker_open_order.base_free = maker_open_order
+                                    .base_free
+                                    .checked_add(base_amount)
+                                    .ok_or(OpenOrderError::OverFlow)?;
+            }
+        }
+        Ok(()) 
     }
 }
+
 
 #[derive(Accounts)]
 pub struct InitializeMarket<'info> {
@@ -1061,41 +943,55 @@ pub struct InitializeOpenOrder<'info> {
 
     pub system_program: Program<'info, System>,
 }
-
 #[derive(Accounts)]
-pub struct ConsumeEvents<'info> {
-    // Market account — needed for lot sizes, mints, vault signer nonce
+pub struct ConsumeEvent<'info> {
     #[account(mut)]
     pub market: Account<'info, Market>,
 
-    // Event queue — events are read and drained from here
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
-    // Base vault — program controlled, source for base token transfers
     #[account(
         mut,
         constraint = base_vault.key() == market.base_vault
     )]
     pub base_vault: Account<'info, AnchorTokenAccount>,
 
-    // Quote vault — program controlled, source for quote token transfers
     #[account(
         mut,
         constraint = quote_vault.key() == market.quote_vault
     )]
     pub quote_vault: Account<'info, AnchorTokenAccount>,
 
-    // Vault signer PDA — authority over base_vault and quote_vault
-    /// CHECK: PDA used only as vault authority, no data stored
+    /// CHECK: PDA vault authority
     #[account(
         seeds = [b"vault_signer", market.key().as_ref()],
         bump
     )]
     pub vault_signer: UncheckedAccount<'info>,
 
-    // Crank — anyone can call this
-    pub crank: Signer<'info>,
+    // Taker token accounts - verified against event.owner
+    #[account(mut)]
+    pub taker_base_account: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub taker_quote_account: Account<'info, AnchorTokenAccount>,
 
+    // Maker token accounts - verified against event.counterparty
+    #[account(mut)]
+    pub maker_base_account: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub maker_quote_account: Account<'info, AnchorTokenAccount>,
+
+    pub crank: Signer<'info>,
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct  UpdateOpenOrders<'info>{
+    #[account(mut)]
+    pub taker_open_order : Account<'info,OpenOrders>,
+    #[account(mut)]
+    pub maker_open_order : Account<'info,OpenOrders>,
+    #[account(mut)]
+    pub market : Account<'info,Market>
 }
