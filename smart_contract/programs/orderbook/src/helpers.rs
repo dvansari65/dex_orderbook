@@ -1,8 +1,11 @@
 use std::u32;
 
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::token::{self, Transfer};
 
-use crate::error::{EventError, MarketError, OpenOrderError, OrderError, SlabError};
+use crate::ConsumeEvent;
+use crate::error::{ConsumeEventsError, EventError, MarketError, OpenOrderError, OrderError, SlabError};
 use crate::state::{
     EventQueue, FillRecord, Market, OrderStatus, OrderType, QueueEvent
 };
@@ -448,4 +451,174 @@ pub fn try_match_ioc(
     }
 
     Ok(Some(fill))
+}
+
+pub fn settle_fill(
+    ctx: &Context<ConsumeEvent>,
+    event: &QueueEvent,
+    market: &Market,
+    signer_seeds: &[&[&[u8]]; 1],
+) -> Result<()> {
+    // Verify taker accounts
+    require!(
+        ctx.accounts.taker_base_account.key() 
+            == get_associated_token_address(&event.owner, &market.base_mint),
+        ConsumeEventsError::InvalidTakerBaseAta
+    );
+    require!(
+        ctx.accounts.taker_quote_account.key() 
+            == get_associated_token_address(&event.owner, &market.quote_mint),
+        ConsumeEventsError::InvalidTakerQuoteAta
+    );
+
+    // Verify maker accounts
+    require!(
+        ctx.accounts.maker_base_account.key() 
+            == get_associated_token_address(&event.counterparty, &market.base_mint),
+        ConsumeEventsError::InvalidMakerBaseAta
+    );
+    require!(
+        ctx.accounts.maker_quote_account.key() 
+            == get_associated_token_address(&event.counterparty, &market.quote_mint),
+        ConsumeEventsError::InvalidMakerQuoteAta
+    );
+
+    // Calculate amounts
+    let base_raw = event
+        .base_quantity
+        .checked_mul(market.base_lot_size)
+        .ok_or(ConsumeEventsError::MathOverflow)?;
+
+    let quote_raw = event
+        .base_quantity
+        .checked_mul(event.price)
+        .ok_or(ConsumeEventsError::MathOverflow)?
+        .checked_mul(market.quote_lot_size)
+        .ok_or(ConsumeEventsError::MathOverflow)?;
+
+    // Execute transfers based on taker side
+    match event.side {
+        Side::Bid => {
+            // Taker bought base: vault -> taker base, vault -> maker quote
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.base_vault.to_account_info(),
+                        to: ctx.accounts.taker_base_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                base_raw,
+            )?;
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.quote_vault.to_account_info(),
+                        to: ctx.accounts.maker_quote_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                quote_raw,
+            )?;
+        }
+        Side::Ask => {
+            // Taker sold base: vault -> taker quote, vault -> maker base
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.quote_vault.to_account_info(),
+                        to: ctx.accounts.taker_quote_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                quote_raw,
+            )?;
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.base_vault.to_account_info(),
+                        to: ctx.accounts.maker_base_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                base_raw,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+
+pub fn settle_cancel(
+    ctx: &Context<ConsumeEvent>,
+    event: &QueueEvent,
+    market: &Market,
+    signer_seeds: &[&[&[u8]]; 1],
+) -> Result<()> {
+    // Cancel only has one party - the owner who cancelled
+    // Verify taker accounts (owner's accounts)
+    require!(
+        ctx.accounts.taker_base_account.key() 
+            == get_associated_token_address(&event.owner, &market.base_mint),
+        ConsumeEventsError::InvalidOwnerBaseAta
+    );
+    require!(
+        ctx.accounts.taker_quote_account.key() 
+            == get_associated_token_address(&event.owner, &market.quote_mint),
+        ConsumeEventsError::InvalidOwnerQuoteAta
+    );
+
+    // Calculate return amount from remaining qty
+    let return_amount = event
+        .taker_remaining_qty
+        .checked_mul(match event.side {
+            Side::Bid => event.price.checked_mul(market.quote_lot_size),
+            Side::Ask => Some(market.base_lot_size),
+        }.ok_or(ConsumeEventsError::MathOverflow)?)
+        .ok_or(ConsumeEventsError::MathOverflow)?;
+
+    // Return locked funds based on side
+    match event.side {
+        Side::Bid => {
+            // Locked quote, return quote
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.quote_vault.to_account_info(),
+                        to: ctx.accounts.taker_quote_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                return_amount,
+            )?;
+        }
+        Side::Ask => {
+            // Locked base, return base
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.base_vault.to_account_info(),
+                        to: ctx.accounts.taker_base_account.to_account_info(),
+                        authority: ctx.accounts.vault_signer.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                return_amount,
+            )?;
+        }
+    }
+
+    Ok(())
 }
