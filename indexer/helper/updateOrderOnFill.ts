@@ -1,9 +1,10 @@
+import { OrderStatus } from "../generated/prisma/enums";
 import prisma from "../lib/prisma";
 
-const deriveStatus = (filledLots: number, baseLots: number): string => {
-    if (filledLots >= baseLots) return "filled";
-    if (filledLots > 0) return "partial";
-    return "open";
+const deriveStatus = (filledLots: number, baseLots: number): OrderStatus => {
+    if (filledLots >= baseLots) return OrderStatus.filled;
+    if (filledLots > 0) return OrderStatus.Partial;
+    return OrderStatus.Open;
   };
   
   // ─── UPDATE MAKER + TAKER ORDERS ─────────────────────────────────────────────
@@ -54,7 +55,6 @@ const deriveStatus = (filledLots: number, baseLots: number): string => {
               status: takerStatus,
             },
           });
-    
           console.log(`✅ Taker order ${takerOrderId} | filledLots: ${takerNewFilled}/${takerOrder.baseLots} | status: ${takerStatus}`);
         } else {
           console.warn(`⚠️ Taker order not found: ${takerOrderId}`);
@@ -65,3 +65,26 @@ const deriveStatus = (filledLots: number, baseLots: number): string => {
         throw error
    }
   };
+
+  export const updateOnSettle = async (orderId:number | null):Promise<void>=>{
+    try {
+      if(!orderId){
+        console.warn("Order ID not found!");
+        return;
+      }
+      console.log("order id:",String(orderId));
+      const updatedOrder = await prisma.order.update({
+        where:{
+          orderId:String(orderId)
+        },
+        data:{
+          status:OrderStatus.Settled,
+          settledAt:new Date()
+        }
+      })
+
+    } catch (error) {
+      console.error("error:",error)
+      return
+    }
+  }
