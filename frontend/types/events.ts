@@ -108,3 +108,4 @@ export interface OrderFillEventData {
   baseLotsRemaining: number;
   timestamp: number;
 }
+

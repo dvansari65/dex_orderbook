@@ -3,7 +3,7 @@ import { AnchorProvider, Program, Idl } from "@coral-xyz/anchor";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react"
 import idl from "../idl/orderbook.json"
-import { Orderbook } from "@/types/orderbook";
+import { Orderbook } from "../types/orderbook";
 import { useMemo } from "react";
 
 export const useDexProgram = () => {

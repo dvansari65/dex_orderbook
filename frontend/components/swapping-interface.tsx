@@ -11,6 +11,7 @@ import { OpenOrderModal } from './open-order/Initialise-open-order';
 import { PlaceOrder } from '@/api/place-order';
 import { PlacePostOnlyOrder } from '@/api/place-post-only-order';
 import { PlaceIOCOrder } from '@/api/place-ioc-order';
+import { useQueryClient } from '@tanstack/react-query';
 
 function SwappingInterface() {
   const { connected, publicKey, signTransaction } = useWallet()
@@ -21,7 +22,7 @@ function SwappingInterface() {
   const [price, setPrice] = useState(0)
   const [size, setSize] = useState(0)
   const [showOpenOrderModal, setShowOpenOrderModal] = useState(false)
-
+  const queryClient = useQueryClient()
   const total = price && size ? (price * size).toFixed(6) : '0.00'
 
   const limitMutation = PlaceOrder()
@@ -74,12 +75,11 @@ function SwappingInterface() {
 
     const callbacks = {
       onSuccess: (data: unknown) => {
-        console.log("Order placed:", data)
         toast.success("Order placed successfully!")
         resetForm()
+        queryClient.invalidateQueries({queryKey:["open_order",publicKey]})
       },
       onError: (error: Error) => {
-        console.log("Order error:", error.message)
         resetForm()
         handleOpenOrderError(error)
       },

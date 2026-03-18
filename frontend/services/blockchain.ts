@@ -27,7 +27,7 @@ export const useGetBidsPda = (market: PublicKey) => {
 
 export const useGetOpenOrderPda = (
     market: string | undefined,
-    owner: PublicKey | undefined
+    owner: PublicKey | null
   ) => {
     console.log("owner",owner)
     if(!market){

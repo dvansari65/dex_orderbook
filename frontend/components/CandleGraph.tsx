@@ -25,7 +25,6 @@ export default function CandleChart() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [resolution, setResolution] = useState('1d');
-  const [isLoaded, setIsLoaded]     = useState(false);
   const socket = useSocket();
 
   useEffect(() => {
@@ -59,7 +58,7 @@ export default function CandleChart() {
     const handleSnapshot = (data: any) => {
       if (!data?.candles?.candles) return;
       candleSeries.setData(sanitizeCandles(data.candles.candles));
-      setTimeout(() => { chart.timeScale().fitContent(); setIsLoaded(true); }, 50);
+      setTimeout(() => { chart.timeScale().fitContent() }, 50);
     };
 
     const handleCandleUpdate = (updateData: CandleUpdate) => {
@@ -107,13 +106,6 @@ export default function CandleChart() {
   return (
     // ✅ chart div is ALWAYS in the DOM so chartRef.current is never null
     <div className="w-full h-full flex flex-col relative">
-
-      {/* ✅ Skeleton overlays on top, disappears once loaded */}
-      {!isLoaded && (
-        <div className="absolute inset-0 z-10">
-          <CandleChartSkeleton />
-        </div>
-      )}
 
       <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <span className="text-sm font-semibold text-primary">Candle Chart</span>

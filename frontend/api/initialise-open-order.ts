@@ -24,7 +24,7 @@ export const useInitializeOpenOrder = () => {
                 }
     
                 // Call initialize instruction
-               const tx =  await program.methods
+               const tx =  await (program.methods as any)
                     .initializeOpenOrder()
                     .accounts({
                         openOrder: pda,
