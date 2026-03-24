@@ -43,32 +43,7 @@ const io = new Server(server, {
 
 const listener              = new EventListener(RPC_URL, PROGRAM_ID);
 let eventCleanup: (() => Promise<void>) | null = null;
-let stopCranker:  (() => void)          | null = null;
 const activeConnections     = new Map<string, Socket>();
-
-// ─── Cranker ──────────────────────────────────────────────────────────────────
-
-/**
- * Starts the cranker on a fixed interval.
- * Cranker runs every CRANKER_INTERVAL_MS, processing one event per cycle.
- * Returns a stop function to cancel the interval.
- */
-const startCrankerLoop = (marketKey: string): (() => void) => {
-  console.log(`⚙️  Cranker started — running every ${CRANKER_INTERVAL_MS / 1000}s`);
-
-  const intervalId = setInterval(async () => {
-    try {
-      await listener.cranker(marketKey);
-    } catch (error: any) {
-      console.error("❌ Cranker loop error:", error.message);
-    }
-  }, CRANKER_INTERVAL_MS);
-
-  return () => {
-    clearInterval(intervalId);
-    console.log("🛑 Cranker stopped");
-  };
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -288,13 +263,6 @@ app.get("/orderbook", async (_req, res) => {
 
 const gracefulShutdown = async () => {
   console.log("\n🛑 Shutting down gracefully...");
-
-  // Stop cranker
-  if (stopCranker) {
-    stopCranker();
-    stopCranker = null;
-  }
-
   // Stop event listener
   if (eventCleanup) {
     await eventCleanup();
@@ -336,7 +304,4 @@ server.listen(PORT, () => {
   console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
   console.log(`🎯 Market:    ${MARKET_PUBKEY}`);
   console.log(`\nPress Ctrl+C to stop\n`);
-
-  // Start cranker immediately after server is ready
-  stopCranker = startCrankerLoop(MARKET_PUBKEY);
 });
