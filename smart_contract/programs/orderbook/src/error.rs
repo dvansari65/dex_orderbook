@@ -128,6 +128,8 @@ pub enum ErrorCode {
 pub enum EventQueueError {
     #[msg("Queue full!")]
     QueueFull,
+    #[msg("Queue empty!")]
+    QueueEmpty,
 }
 
 #[error_code]
@@ -144,4 +146,10 @@ pub enum ConsumeEventsError {
     InvalidMakerQuoteAta,
     #[msg("Math overflow in settlement calculation")]
     MathOverflow,
+    #[msg("Fund can not be settle!")]
+    NonSettleableEvent,
+    #[msg("Invalid taker base ATA!")]
+    InvalidOwnerBaseAta,
+    #[msg("Invalid taker quote ATA!")]
+    InvalidOwnerQuoteAta
 }
