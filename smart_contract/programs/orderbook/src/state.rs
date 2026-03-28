@@ -31,8 +31,15 @@ pub struct Market {
     pub max_orders_per_user: u16,   // Limits spamming orders
 
     pub padding: [u8; 64],          // Reserved space for future upgrades
+    #[max_len(64)] 
+    pub trader_entry:Vec<TraderEntry>
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Debug)]
+pub struct TraderEntry {
+    pub trader_key:Pubkey,
+    pub trader_state:TraderState
+}
 
 #[account]
 #[derive(InitSpace,Debug)]
@@ -63,32 +70,6 @@ pub enum OrderType {
     Limit,
     ImmediateOrCancel,
     PostOnly
-}
-
-#[account]
-#[derive(InitSpace,Debug)]
-pub struct OpenOrders {
-    pub market: Pubkey,
-    pub owner: Pubkey,
-    pub base_free: u64,
-    pub base_locked: u64,
-    pub quote_free: u64,
-    pub quote_locked: u64,
-    #[max_len(16)] // Max orders
-    pub orders: Vec<Order>, 
-    pub orders_count: u8,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Debug)]
-pub struct Order {
-    pub order_type:OrderType,
-    pub order_id: u64,
-    pub side: Side,
-    pub price: u64,
-    pub owner: Pubkey, 
-    pub quantity: u64,
-    pub client_order_id: u64,
-    pub order_status:OrderStatus
 }
 
 #[repr(u8)]
@@ -181,4 +162,14 @@ pub struct FillRecord {
     pub execution_price: u64,
     pub maker_fully_filled: bool,
     pub maker_remaining_qty: u64,
+}
+
+#[repr(C)]
+#[derive(Debug,Clone,AnchorSerialize, AnchorDeserialize, InitSpace)]
+pub struct TraderState{
+    pub quote_lots_locked:u64,
+    pub quote_lots_free:u64,
+    pub base_lots_free:u64,
+    pub base_lots_locked:u64,
+    pub _padding:[u64;8]
 }
