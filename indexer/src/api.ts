@@ -19,7 +19,6 @@ const RPC_URL    = process.env.RPC_URL    || "http://127.0.0.1:8899";
 const PROGRAM_ID = process.env.PROGRAM_ID || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
 const PORT       = process.env.PORT       || 3001;
-const CRANKER_INTERVAL_MS = 5000; // 5 seconds
 
 if (!PROGRAM_ID || !MARKET_PUBKEY) {
   console.error("❌ PROGRAM_ID and MARKET_PUBKEY must be set in .env");
@@ -120,7 +119,6 @@ const startEventListener = async (marketState: Market) => {
           event.name === "orderFillEvent" ||
           event.name === "orderPartialFillEvent"
         ) {
-          console.log("💰 Fill event triggered");
           const orderFilledEventData = parseOrderFillEvent(event);
           if (!orderFilledEventData) {
             console.error("❌ parseOrderFillEvent returned falsy");
