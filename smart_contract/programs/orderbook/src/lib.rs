@@ -1,4 +1,4 @@
-use crate::{assets::transfer_from_vault, states::order_schema::enums::Side};
+use crate::{states::order_schema::enums::Side};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint as AnchorMint, Token, TokenAccount as AnchorTokenAccount};
 declare_id!("2BRNRPFwJWjgRGV3xeeudGsi9mPBQHxLWFB6r3xpgxku");
@@ -16,18 +16,12 @@ use state::*;
 
 #[program]
 pub mod orderbook {
-    use std::{collections::HashMap, u32};
-
-    use anchor_spl::{
-        associated_token::get_associated_token_address,
-        token::{self, Transfer},
-    };
+    use std::{u32};
 
     use crate::{
-        assets::{credit_fill, lock_ask_funds, lock_bid_funds, unlock_ask_funds, unlock_bid_funds},
-        error::ErrorCode,
+        assets::{lock_ask_funds, lock_bid_funds, unlock_ask_funds, unlock_bid_funds},
         events::{EventParams, dispatch_event, dispatch_fill_event},
-        helpers::{get_next_order_id, settle_cancel, settle_fill, try_match, try_match_ioc, would_match_post_only},
+        helpers::{get_next_order_id, try_match, try_match_ioc, would_match_post_only},
         states::order_schema::enums::Side,
     };
 
@@ -120,7 +114,6 @@ pub mod orderbook {
                 &ctx.accounts.user_quote_vault,
                 &ctx.accounts.quote_vault,
                 &ctx.accounts.token_program,
-                &mut ctx.accounts.open_order,
                 quote_lots,
                 base_lots,
             )?,
@@ -130,7 +123,6 @@ pub mod orderbook {
                 &ctx.accounts.user_base_vault,
                 &ctx.accounts.base_vault,
                 &ctx.accounts.token_program,
-                &mut ctx.accounts.open_order,
                 base_lots,
             )?,
         };
@@ -150,20 +142,6 @@ pub mod orderbook {
                 market_key,
             ),
         )?;
-
-        // ── 3. Build taker order ──
-        let mut taker_order = Order {
-            order_type,
-            side,
-            quantity: base_lots,
-            owner: ctx.accounts.owner.key(),
-            order_id,
-            client_order_id,
-            price: quote_lots,
-            order_status: OrderStatus::Open,
-        };
-
-        // ── 4. Run pure match engine ──
         let opposite_slab = match side {
             Side::Ask => &mut ctx.accounts.bids,
             Side::Bid => &mut ctx.accounts.asks,
@@ -172,10 +150,10 @@ pub mod orderbook {
         // try_match returns Vec<FillRecord>
         // Each FillRecord has: maker_order_id, maker_owner, fill_qty,
         //                      execution_price, maker_fully_filled, maker_remaining_qty
-        let fills = try_match(side, &mut taker_order, opposite_slab)?;
+        let fills = try_match(side, base_lots,quote_lots, opposite_slab)?;
 
         // ── 5. Per fill: settle + emit ──
-        for (i, fill) in fills.iter().enumerate() {
+        for (_i, fill) in fills.iter().enumerate() {
             // dispatch_fill_event pulls maker_order_id and maker_remaining_qty
             // directly from fill — that is how maker_order_id gets into the event
             dispatch_fill_event(
@@ -188,43 +166,32 @@ pub mod orderbook {
                 side,
                 market_key,
             )?;
+            let remaining_qty = quote_lots - fill.fill_qty;
+            if remaining_qty > 0 {
+                let same_slab = match side {
+                    Side::Ask => &mut ctx.accounts.asks,
+                    Side::Bid => &mut ctx.accounts.bids,
+                };
+                same_slab.insert_order(
+                    order_id,
+                    &order_type,
+                    remaining_qty,
+                    ctx.accounts.owner.key(),
+                    quote_lots,
+                    OrderStatus::PartialFill,
+                    client_order_id,
+                    &market_key,
+                    side,
+                )?;
+                msg!(
+                    "place_limit_order: id={} side={:?} fills={} remaining={}",
+                    order_id,
+                    side,
+                    fills.len(),
+                    remaining_qty
+                );
+            }
         }
-
-        // ── 6. Determine final status ──
-        taker_order.order_status = match (taker_order.quantity == 0, !fills.is_empty()) {
-            (true, _) => OrderStatus::Fill,
-            (false, true) => OrderStatus::PartialFill,
-            (false, false) => OrderStatus::Open,
-        };
-        msg!("taker qty filled:{}", taker_order.quantity);
-        // ── 7. Insert resting quantity into slab if not fully filled ──
-        if taker_order.quantity > 0 {
-            msg!("inserting into open order....:{}", taker_order.quantity);
-            let same_slab = match side {
-                Side::Ask => &mut ctx.accounts.asks,
-                Side::Bid => &mut ctx.accounts.bids,
-            };
-            same_slab.insert_order(
-                order_id,
-                &order_type,
-                taker_order.quantity,
-                ctx.accounts.owner.key(),
-                quote_lots,
-                taker_order.order_status,
-                client_order_id,
-                &market_key,
-                side,
-            )?;
-            OpenOrders::push_order(&mut ctx.accounts.open_order, taker_order)?;
-        }
-
-        msg!(
-            "place_limit_order: id={} side={:?} fills={} remaining={}",
-            order_id,
-            side,
-            fills.len(),
-            taker_order.quantity
-        );
 
         Ok(())
     }
@@ -264,7 +231,6 @@ pub mod orderbook {
                 &ctx.accounts.user_quote_vault,
                 &ctx.accounts.quote_vault,
                 &ctx.accounts.token_program,
-                &mut ctx.accounts.open_order,
                 quote_lots,
                 base_lots,
             )?,
@@ -274,21 +240,8 @@ pub mod orderbook {
                 &ctx.accounts.user_base_vault,
                 &ctx.accounts.base_vault,
                 &ctx.accounts.token_program,
-                &mut ctx.accounts.open_order,
                 base_lots,
             )?,
-        };
-
-        // ── 2. Build order + match ──
-        let mut order = Order {
-            order_type,
-            side,
-            quantity: base_lots,
-            owner: owner.key(),
-            order_id,
-            client_order_id,
-            price: quote_lots,
-            order_status: OrderStatus::Open,
         };
 
         let opposite_slab = match side {
@@ -310,17 +263,18 @@ pub mod orderbook {
             ),
         )?;
 
-        let fill_opt = try_match_ioc(side, &mut order, opposite_slab)?;
-
+        let fill_opt = try_match_ioc(side, quote_lots,base_lots, opposite_slab)?;
+        let mut remaining_qty= 0;
         match fill_opt {
             Some(fill) => {
+                remaining_qty = base_lots - fill.fill_qty;
                 let event_params = EventParams {
                     event_type:if fill.maker_fully_filled {
                         EventType::Fill
                     }else {
                         EventType::PartialFill
                     },
-                    order_id: order.order_id,
+                    order_id: order_id,
                     owner: owner.key(),
                     counterparty: fill.maker_owner,
                     side,
@@ -330,27 +284,20 @@ pub mod orderbook {
                     market_pubkey: market_key,
                     maker_order_id: fill.maker_order_id,
                     maker_remaining_qty: fill.maker_remaining_qty,
-                    taker_remaining_qty: order.quantity,
+                    taker_remaining_qty: remaining_qty,
                 };
                 // ── 3c. Emit fill event ──
                 dispatch_event(market, event_queue, event_params)?;
-
-                order.order_status = if order.quantity == 0 {
-                    OrderStatus::Fill
-                } else {
-                    OrderStatus::PartialFill
-                };
             }
             None => {
-                order.order_status = OrderStatus::Cancel;
+            //   we are not doing anything because we are emitting cancel event at the end of instruction
             }
         }
-
-       if order.quantity > 0 {
-         // ── No fill — unlock everything back to free ──
-         let event_params = EventParams {
+        msg!("remaining qty of taker:{}",remaining_qty);
+        // ── No fill — unlock everything back to free ──
+        let event_params = EventParams {
             event_type: EventType::Cancel,
-            order_id: order.order_id,
+            order_id: order_id,
             owner: owner.key(),
             counterparty: Pubkey::default(),
             side,
@@ -360,20 +307,12 @@ pub mod orderbook {
             market_pubkey: market_key,
             maker_order_id: 0,
             maker_remaining_qty: 0,
-            taker_remaining_qty: order.quantity,
+            taker_remaining_qty: remaining_qty,
         };
-        // push krdo cancel event bhi kyu ki jab hum fill event ke fund settle karenge vo to hum bas jo fill hue
-        // uske fund settle karenge, cancle event ke fund hum settle kr sakte hai kyu ki vo unfilled portion ke liye
-        // emit krenge hum ya to kisine cancel kiya h order, cancel event ke fund settlement ka aur fill event fund
-        // settlement ka koi relation nahi hai
-
-        // ab jab event dispatch karenge event type pass krnege boolean ke jagah
         dispatch_event(market, event_queue, event_params)?;
-       }
         msg!(
-            "place_ioc_order: id={} status={:?}",
+            "place_ioc_order: id={}",
             order_id,
-            order.order_status
         );
         Ok(())
     }
@@ -425,7 +364,6 @@ pub mod orderbook {
                     &ctx.accounts.user_quote_vault,
                     &ctx.accounts.quote_vault,
                     &ctx.accounts.token_program,
-                    &mut ctx.accounts.open_order,
                     quote_lots,
                     base_lots,
                 )?;
@@ -441,7 +379,6 @@ pub mod orderbook {
                     &ctx.accounts.user_base_vault,
                     &ctx.accounts.base_vault,
                     &ctx.accounts.token_program,
-                    &mut ctx.accounts.open_order,
                     base_lots,
                 )?;
             }
@@ -480,19 +417,6 @@ pub mod orderbook {
                 market_key,
             ),
         )?;
-
-        // ── 5. Push to open orders list ──
-        let order = Order {
-            order_type,
-            side,
-            quantity: base_lots,
-            owner: ctx.accounts.owner.key(),
-            order_id,
-            client_order_id,
-            price: quote_lots,
-            order_status: OrderStatus::Open,
-        };
-        OpenOrders::push_order(&mut ctx.accounts.open_order, order)?;
         msg!(
             "place_post_only_order: id={} side={:?} price={}",
             order_id,
@@ -502,67 +426,27 @@ pub mod orderbook {
         Ok(())
     }
 
-    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
-        let open_order = &mut ctx.accounts.open_order;
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64,side:Side) -> Result<()> {
         let owner = &ctx.accounts.owner;
-
-        require!(open_order.owner == owner.key(), ErrorCode::UnAuthorized);
-
-        // Find order in open orders list
-        let order_pos = open_order
-            .orders
-            .iter()
-            .position(|o| o.order_id == order_id)
-            .ok_or(OpenOrderError::OrderNotFound)?;
-
-        let order = open_order.orders[order_pos];
 
         let market = &mut ctx.accounts.market;
         let market_key = market.key();
-
+        
         // Remove from slab
-        let slab = match order.side {
+        let slab = match side {
             Side::Ask => &mut ctx.accounts.asks,
             Side::Bid => &mut ctx.accounts.bids,
         };
-        slab.remove_order(&order_id)?;
+       let deleted_order = slab.remove_order(&order_id)?;
 
         // Move locked → free — no token transfer here
         // Token transfer happens in consume_events when Cancel event is processed
-        match order.side {
+        match side {
             Side::Ask => {
-                let base_amount = order
-                    .quantity
-                    .checked_mul(market.base_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
-
-                open_order.base_locked = open_order
-                    .base_locked
-                    .checked_sub(base_amount)
-                    .ok_or(OpenOrderError::UnderFlow)?;
-
-                open_order.base_free = open_order
-                    .base_free
-                    .checked_add(base_amount)
-                    .ok_or(OpenOrderError::OverFlow)?;
+               unlock_ask_funds(market, deleted_order.quantity, &owner.key())?;
             }
             Side::Bid => {
-                let quote_amount = order
-                    .price
-                    .checked_mul(order.quantity)
-                    .ok_or(MarketError::MathOverflow)?
-                    .checked_mul(market.quote_lot_size)
-                    .ok_or(MarketError::MathOverflow)?;
-
-                open_order.quote_locked = open_order
-                    .quote_locked
-                    .checked_sub(quote_amount)
-                    .ok_or(OpenOrderError::UnderFlow)?;
-
-                open_order.quote_free = open_order
-                    .quote_free
-                    .checked_add(quote_amount)
-                    .ok_or(OpenOrderError::OverFlow)?;
+                unlock_bid_funds(market, deleted_order.price, &owner.key(), deleted_order.quantity)?;
             }
         }
 
@@ -574,147 +458,21 @@ pub mod orderbook {
             &mut ctx.accounts.event_queue,
             EventParams {
                 event_type: EventType::Cancel,
-                order_id: order.order_id,
+                order_id: order_id,
                 owner: owner.key(),
                 counterparty: Pubkey::default(), // cancel mein koi counterparty nahi
-                side: order.side,
-                price: order.price,            // quote lots
-                base_quantity: order.quantity, // base lots
-                client_order_id: order.client_order_id,
+                side: side,
+                price: deleted_order.price,            // quote lots
+                base_quantity: deleted_order.quantity, // base lots
+                client_order_id: deleted_order.client_order_id,
                 market_pubkey: market_key,
                 maker_order_id: 0,                   // cancel mein maker nahi hota
                 maker_remaining_qty: 0,              // cancel mein maker nahi hota
-                taker_remaining_qty: order.quantity, // yahi wapas karana hai
+                taker_remaining_qty: 0, // yahi wapas karana hai
             },
         )?;
-
-        // Remove from open orders list
-        open_order.remove_order(order_id)?;
-
-        msg!(
-            "cancel_order: id={} side={:?} qty={}",
-            order_id,
-            order.side,
-            order.quantity
-        );
+        msg!("order cancelled: {:?}",deleted_order);
         Ok(())
-    }
-    pub fn initialize_open_order(ctx: Context<InitializeOpenOrder>) -> Result<()> {
-        let open_order = &mut ctx.accounts.open_order;
-        open_order.market = ctx.accounts.market.key();
-        open_order.owner = ctx.accounts.owner.key();
-        open_order.base_free = 0;
-        open_order.base_locked = 0;
-        open_order.orders_count = 0;
-        open_order.quote_free = 0;
-        open_order.quote_locked = 0;
-        open_order.orders = Vec::new();
-        Ok(())
-    }
-    pub fn consume_event(ctx: Context<ConsumeEvent>) -> Result<()> {
-        let market_key = ctx.accounts.market.key();
-        let market = &ctx.accounts.market;
-        
-        // Pop single event - atomic per instruction
-        let event = ctx
-            .accounts
-            .event_queue
-            .pop_front()
-            .ok_or(EventQueueError::QueueEmpty)?;
-    
-        // Vault signer seeds
-        let seeds: &[&[u8]] = &[
-            b"vault_signer",
-            market_key.as_ref(),
-            &[market.vault_signer_nonce],
-        ];
-        let signer_seeds = &[seeds];
-    
-        match event.event_type {
-            EventType::Fill | EventType::PartialFill => {
-                settle_fill(
-                    &ctx,
-                    &event,
-                    market,
-                    signer_seeds,
-                )?;
-            }
-            EventType::Cancel => {
-                settle_cancel(
-                    &ctx,
-                    &event,
-                    market,
-                    signer_seeds,
-                )?;
-            }
-            _ => return Err(ConsumeEventsError::NonSettleableEvent.into()),
-        }
-    
-        msg!("consume_event: processed {:?}", event.event_type);
-        Ok(())
-    }   
-    pub fn update_open_orders(
-        ctx: Context<UpdateOpenOrders>,
-        price_in_quote_lots:u64,
-        quantity_in_base_lots:u64,
-        side: Side
-    )->Result<()>{
-        let taker_open_order = &mut ctx.accounts.taker_open_order;
-        let maker_open_order = &mut ctx.accounts.maker_open_order;
-        let market = &mut ctx.accounts.market;
-         //  update maker open order
-         let price = price_in_quote_lots
-                        .checked_mul(quantity_in_base_lots)
-                        .ok_or(OpenOrderError::OverFlow)?
-                        .checked_mul(market.quote_lot_size)
-                        .ok_or(OpenOrderError::OverFlow)?;
-
-        let base_amount = quantity_in_base_lots
-                        .checked_mul(market.base_lot_size)
-                        .ok_or(OpenOrderError::OverFlow)?;
-        match side {
-            Side::Ask => {
-                //  first we have to update taker's open order
-                taker_open_order.base_locked =  taker_open_order
-                                    .base_locked
-                                    .checked_sub(base_amount)
-                                    .ok_or(OpenOrderError::UnderFlow)?;
-
-                taker_open_order.base_free = taker_open_order
-                                    .base_free
-                                    .checked_add(base_amount)
-                                    .ok_or(OpenOrderError::OverFlow)?;
-    
-                maker_open_order.quote_free = maker_open_order
-                                    .quote_free
-                                    .checked_add(price)
-                                    .ok_or(OpenOrderError::OverFlow)?;
-                maker_open_order.quote_locked = maker_open_order
-                                    .quote_locked
-                                    .checked_sub(price)
-                                    .ok_or(OpenOrderError::UnderFlow)?;
-            }
-            Side::Bid => {
-                taker_open_order.quote_free = taker_open_order
-                                    .quote_free
-                                    .checked_add(price)
-                                    .ok_or(OpenOrderError::OverFlow)?;
-                taker_open_order.quote_locked = taker_open_order
-                                    .quote_locked
-                                    .checked_sub(price)
-                                    .ok_or(OpenOrderError::UnderFlow)?;
-                maker_open_order.base_locked =  maker_open_order
-                                    .base_locked
-                                    .checked_sub(base_amount)
-                                    .ok_or(OpenOrderError::UnderFlow)?;
-
-                maker_open_order.base_free = maker_open_order
-                                    .base_free
-                                    .checked_add(base_amount)
-                                    .ok_or(OpenOrderError::OverFlow)?;
-            }
-        }
-        Ok(()) 
     }
 }
 
@@ -791,15 +549,6 @@ pub struct PlaceLimitOrder<'info> {
     #[account(mut, seeds = [b"bids", market.key().as_ref()], bump)]
     pub bids: Account<'info, Slab>,
 
-    #[account(
-        mut,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
-        bump,
-        has_one = owner,
-        has_one = market
-    )]
-    pub open_order: Account<'info, OpenOrders>,
-
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
@@ -830,15 +579,6 @@ pub struct PlaceIOCOrder<'info> {
     #[account(mut, seeds = [b"bids", market.key().as_ref()], bump)]
     pub bids: Account<'info, Slab>,
 
-    #[account(
-        mut,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
-        bump,
-        has_one = owner,
-        has_one = market
-    )]
-    pub open_order: Account<'info, OpenOrders>,
-
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
@@ -868,15 +608,6 @@ pub struct PlacePostOnlyOrder<'info> {
     #[account(mut, seeds = [b"bids", market.key().as_ref()], bump)]
     pub bids: Account<'info, Slab>,
 
-    #[account(
-        mut,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
-        bump,
-        has_one = owner,
-        has_one = market
-    )]
-    pub open_order: Account<'info, OpenOrders>,
-
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
@@ -902,15 +633,6 @@ pub struct CancelOrder<'info> {
     #[account(mut)]
     pub market: Account<'info, Market>,
 
-    #[account(
-        mut,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
-        bump,
-        has_one = owner,
-        has_one = market
-    )]
-    pub open_order: Account<'info, OpenOrders>,
-
     #[account(mut)]
     pub event_queue: Account<'info, EventQueue>,
 
@@ -921,77 +643,4 @@ pub struct CancelOrder<'info> {
     pub bids: Account<'info, Slab>,
 
     pub owner: Signer<'info>,
-}
-// ── InitializeOpenOrder ───────────────────────────────────────────────────────
-// Unchanged from your original.
-#[derive(Accounts)]
-pub struct InitializeOpenOrder<'info> {
-    #[account(
-        init,
-        space = 8 + OpenOrders::INIT_SPACE,
-        seeds = [b"open_order", market.key().as_ref(), owner.key().as_ref()],
-        payer = owner,
-        bump
-    )]
-    pub open_order: Account<'info, OpenOrders>,
-
-    #[account(mut)]
-    pub market: Account<'info, Market>,
-
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-#[derive(Accounts)]
-pub struct ConsumeEvent<'info> {
-    #[account(mut)]
-    pub market: Account<'info, Market>,
-
-    #[account(mut)]
-    pub event_queue: Account<'info, EventQueue>,
-
-    #[account(
-        mut,
-        constraint = base_vault.key() == market.base_vault
-    )]
-    pub base_vault: Account<'info, AnchorTokenAccount>,
-
-    #[account(
-        mut,
-        constraint = quote_vault.key() == market.quote_vault
-    )]
-    pub quote_vault: Account<'info, AnchorTokenAccount>,
-
-    /// CHECK: PDA vault authority
-    #[account(
-        seeds = [b"vault_signer", market.key().as_ref()],
-        bump
-    )]
-    pub vault_signer: UncheckedAccount<'info>,
-
-    // Taker token accounts - verified against event.owner
-    #[account(mut)]
-    pub taker_base_account: Account<'info, AnchorTokenAccount>,
-    #[account(mut)]
-    pub taker_quote_account: Account<'info, AnchorTokenAccount>,
-
-    // Maker token accounts - verified against event.counterparty
-    #[account(mut)]
-    pub maker_base_account: Account<'info, AnchorTokenAccount>,
-    #[account(mut)]
-    pub maker_quote_account: Account<'info, AnchorTokenAccount>,
-
-    pub crank: Signer<'info>,
-    pub token_program: Program<'info, Token>,
-}
-
-#[derive(Accounts)]
-pub struct  UpdateOpenOrders<'info>{
-    #[account(mut)]
-    pub taker_open_order : Account<'info,OpenOrders>,
-    #[account(mut)]
-    pub maker_open_order : Account<'info,OpenOrders>,
-    #[account(mut)]
-    pub market : Account<'info,Market>
 }
