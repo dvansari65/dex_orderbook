@@ -31,7 +31,7 @@ pub struct Market {
     pub max_orders_per_user: u16,   // Limits spamming orders
 
     pub padding: [u8; 64],          // Reserved space for future upgrades
-    #[max_len(64)] 
+    #[max_len(32)] 
     pub trader_entry:Vec<TraderEntry>
 }
 
@@ -171,5 +171,14 @@ pub struct TraderState{
     pub quote_lots_free:u64,
     pub base_lots_free:u64,
     pub base_lots_locked:u64,
-    pub _padding:[u64;8]
+}
+
+impl Market {
+    pub fn get_trader_entry(&mut self,trader_key:&Pubkey)->Option<&mut TraderEntry>{
+           let  entry =  self.trader_entry
+                    .iter_mut()
+                    .find(|entry| entry.trader_key == *trader_key);
+            return entry;
+    }
+
 }
