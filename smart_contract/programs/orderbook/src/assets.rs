@@ -2,9 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, *};
 
 use crate::{
-    error::{MarketError, OpenOrderError},
-    state::{FillRecord, Market, TraderEntry, TraderState},
-    states::order_schema::enums::Side,
+    error::{MarketError},
+    state::{ Market, TraderEntry, TraderState},
 };
 
 pub fn transfer_from_user<'info>(
@@ -90,7 +89,6 @@ pub fn lock_bid_funds<'info>(
     };
     market.trader_entry.push(trader_entry);
     msg!("Transfer successful");
-
     Ok(amount_to_lock)
 }
 
@@ -217,75 +215,3 @@ pub fn unlock_ask_funds<'info>(
 
     Ok(amount_to_move)
 }
-
-// pub fn credit_fill(
-//     taker_open_order: &mut OpenOrders,
-//     maker_open_order: &mut OpenOrders,
-//     fill: &FillRecord,
-//     taker_side: Side,
-//     market: &Market,
-// ) -> Result<()> {
-//     // quote value of this fill in raw token units (lots × lot_size)
-//     let quote_amount = fill
-//         .fill_qty
-//         .checked_mul(fill.execution_price)
-//         .ok_or(MarketError::MathOverflow)?
-//         .checked_mul(market.quote_lot_size)
-//         .ok_or(MarketError::MathOverflow)?;
-
-//     let base_amount = fill
-//         .fill_qty
-//         .checked_mul(market.base_lot_size)
-//         .ok_or(MarketError::MathOverflow)?;
-
-//     match taker_side {
-//         Side::Ask => {
-//             // Taker sold base → receives quote
-//             taker_open_order.base_locked = taker_open_order
-//                 .base_locked
-//                 .checked_sub(base_amount)
-//                 .ok_or(OpenOrderError::UnderFlow)?;
-
-//             taker_open_order.quote_free = taker_open_order
-//                 .quote_free
-//                 .checked_add(quote_amount)
-//                 .ok_or(OpenOrderError::OverFlow)?;
-
-//             // Maker had a bid → locked quote, now receives base
-//             maker_open_order.quote_locked = maker_open_order
-//                 .quote_locked
-//                 .checked_sub(quote_amount)
-//                 .ok_or(OpenOrderError::UnderFlow)?;
-
-//             maker_open_order.base_free = maker_open_order
-//                 .base_free
-//                 .checked_add(base_amount)
-//                 .ok_or(OpenOrderError::OverFlow)?;
-//         }
-
-//         Side::Bid => {
-//             // Taker bought base → pays quote, receives base
-//             taker_open_order.quote_locked = taker_open_order
-//                 .quote_locked
-//                 .checked_sub(quote_amount)
-//                 .ok_or(OpenOrderError::UnderFlow)?;
-
-//             taker_open_order.base_free = taker_open_order
-//                 .base_free
-//                 .checked_add(base_amount)
-//                 .ok_or(OpenOrderError::OverFlow)?;
-
-//             // Maker had an ask → locked base, now receives quote
-//             maker_open_order.base_locked = maker_open_order
-//                 .base_locked
-//                 .checked_sub(base_amount)
-//                 .ok_or(OpenOrderError::UnderFlow)?;
-
-//             maker_open_order.quote_free = maker_open_order
-//                 .quote_free
-//                 .checked_add(quote_amount)
-//                 .ok_or(OpenOrderError::OverFlow)?;
-//         }
-//     }
-//     Ok(())
-// }
