@@ -1,13 +1,12 @@
 use std::u32;
 
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::get_associated_token_address;
-use anchor_spl::token::{self, Transfer};
 
-use crate::error::{ConsumeEventsError, EventError, MarketError, OpenOrderError, OrderError, SlabError};
-use crate::state::{
-    EventQueue, FillRecord, Market, OrderStatus, OrderType, QueueEvent
+use crate::error::{
+    EventError, MarketError, OrderError, SlabError,
+    TraderEntryError,
 };
+use crate::state::{ FillRecord, Market, OrderStatus, OrderType, TraderEntry};
 
 use crate::state::{Node, Slab};
 use crate::states::order_schema::enums::Side;
@@ -198,12 +197,7 @@ impl Slab {
 // Returns true  → order WOULD cross → reject it.
 // Returns false → order is safe → insert into book.
 // Pure read — does not mutate anything.
-pub fn would_match_post_only(
-    side: Side,
-    order_price: u64,
-    asks: &Slab,
-    bids: &Slab,
-) -> bool {
+pub fn would_match_post_only(side: Side, order_price: u64, asks: &Slab, bids: &Slab) -> bool {
     match side {
         Side::Ask => bids
             .nodes
@@ -215,54 +209,6 @@ pub fn would_match_post_only(
             .map_or(false, |best_ask| order_price >= best_ask.price),
     }
 }
-
-
-impl EventQueue {
-    pub const CAPACITY: usize = 32;
-    pub fn get_event_by_order_id(&mut self, order_id: &u64) -> Result<Option<&QueueEvent>> {
-        let event_position = self
-            .events
-            .iter()
-            .position(|n| n.order_id == *order_id)
-            .ok_or(EventError::OrderNotFound)?;
-
-        let event = self.events.get(event_position);
-        Ok(event)
-    }
-    pub fn insert_event(&mut self, event: QueueEvent) -> Result<()> {
-        if self.count == Self::CAPACITY as u32 {
-            self.tail = (self.tail + 1) % Self::CAPACITY as u32;
-        } else {
-            self.count += 1;
-        }
-
-        if self.events.len() < Self::CAPACITY {
-            self.events.push(event);
-        } else {
-            self.events[self.head as usize] = event;
-        }
-
-        self.head = (self.head + 1) % Self::CAPACITY as u32;
-        Ok(())
-    }
-    pub fn pop_front(&mut self) -> Option<QueueEvent> {
-        if self.count == 0 {
-            return None;
-        }
-        let event = self.events[self.tail as usize].clone();
-        self.tail = (self.tail + 1) % Self::CAPACITY as u32;
-        self.count -= 1;
-        Some(event)
-    }
-
-    pub fn peek(&self) -> Option<&QueueEvent> {
-        if self.count == 0 {
-            return None;
-        }
-        Some(&self.events[self.tail as usize])
-    }
-}
-
 
 pub fn get_next_order_id(market: &mut Market) -> Result<u64> {
     let order_id = market.next_order_id;
@@ -277,7 +223,10 @@ pub fn get_order_book_sides<'info>(
     asks: &'info mut Account<'info, Slab>,
     bids: &'info mut Account<'info, Slab>,
     side: Side,
-) -> (&'info mut Account<'info, Slab>, &'info mut Account<'info, Slab>) {
+) -> (
+    &'info mut Account<'info, Slab>,
+    &'info mut Account<'info, Slab>,
+) {
     match side {
         Side::Ask => (asks, bids),
         Side::Bid => (bids, asks),
@@ -290,10 +239,12 @@ pub fn get_order_book_sides<'info>(
 // Caller handles: credit_fill(), dispatch_fill_event(), slab insert.
 pub fn try_match(
     side: Side,
-    quantity:u64,
-    price:u64,
+    quantity: u64,
+    price: u64,
     opposite_slab: &mut Slab,
 ) -> Result<Vec<FillRecord>> {
+    msg!("matching started");
+
     let mut fills: Vec<FillRecord> = Vec::new();
 
     while !opposite_slab.nodes.is_empty() && quantity > 0 {
@@ -307,7 +258,6 @@ pub fn try_match(
                 Side::Ask => price <= best.price,
                 Side::Bid => price >= best.price,
             };
-
             if !can_match {
                 break;
             }
@@ -329,7 +279,6 @@ pub fn try_match(
                 maker_remaining_qty: best.quantity,
             }
         };
-
         if fill.maker_fully_filled {
             opposite_slab.remove_order(&fill.maker_order_id)?;
         }
@@ -340,8 +289,8 @@ pub fn try_match(
 
 pub fn try_match_ioc(
     side: Side,
-    price:u64,
-    quantity:u64,
+    price: u64,
+    quantity: u64,
     opposite_slab: &mut Slab,
 ) -> Result<Option<FillRecord>> {
     if opposite_slab.nodes.is_empty() {
@@ -386,3 +335,91 @@ pub fn try_match_ioc(
     Ok(Some(fill))
 }
 
+pub fn update_trader_entry(
+    is_maker: bool,
+    side: Side,
+    fill_record: &FillRecord,
+    trader_entry:Option<&mut TraderEntry>,
+    base_lot_size: u64,
+    quote_lot_size: u64,
+) -> Result<()> {
+    let base_amount_to_update = fill_record // base amount to update of taker
+        .fill_qty
+        .checked_mul(base_lot_size)
+        .ok_or(MarketError::MathOverflow)?;
+
+    let quote_amount_to_update = fill_record
+        .execution_price
+        .checked_mul(fill_record.fill_qty)
+        .ok_or(MarketError::MathOverflow)?
+        .checked_mul(quote_lot_size)
+        .ok_or(MarketError::MathOverflow)?;
+
+    // todo: update taker's entry
+    match trader_entry {
+        Some(entry) => match side {
+            Side::Ask => {
+                // this side is in the perspective of the taker 
+                //  so when side is ask for taker then side will be bid for maker
+                // that's why we are checking is_maker, if it is maker then it will update entries opposite 
+                // taker's side
+                if is_maker {
+                    entry.trader_state.quote_lots_locked = entry
+                        .trader_state
+                        .quote_lots_locked
+                        .checked_sub(quote_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?;
+
+                    entry.trader_state.base_lots_free = entry
+                        .trader_state
+                        .base_lots_free
+                        .checked_add(base_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?
+                } else {
+                    entry.trader_state.quote_lots_free = entry
+                        .trader_state
+                        .quote_lots_free
+                        .checked_add(quote_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?;
+
+                    entry.trader_state.base_lots_locked = entry
+                        .trader_state
+                        .base_lots_locked
+                        .checked_sub(base_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?
+                }
+            }
+            Side::Bid => {
+                if is_maker {
+                    entry.trader_state.quote_lots_free = entry
+                        .trader_state
+                        .quote_lots_free
+                        .checked_add(quote_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?;
+
+                    entry.trader_state.base_lots_locked = entry
+                        .trader_state
+                        .base_lots_locked
+                        .checked_sub(base_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?
+                } else {
+                    entry.trader_state.quote_lots_locked = entry
+                        .trader_state
+                        .quote_lots_locked
+                        .checked_sub(quote_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?;
+
+                    entry.trader_state.base_lots_free = entry
+                        .trader_state
+                        .base_lots_free
+                        .checked_add(base_amount_to_update)
+                        .ok_or(MarketError::MathOverflow)?;
+                }
+            }
+        },
+        None => {
+            return err!(TraderEntryError::EntryNotFound);
+        }
+    }
+    Ok(())
+}
