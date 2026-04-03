@@ -95,6 +95,7 @@ pub mod orderbook {
         let asks = &mut ctx.accounts.asks;
         let bids = &mut ctx.accounts.bids;
         msg!("taker qty at the begining:{}", max_base_size);
+        msg!("price at the beginning:{}",price);
         require!(market.market_status == 1, MarketError::MarketActiveError);
         require!(
             max_base_size >= market.base_lot_size,
@@ -107,7 +108,7 @@ pub mod orderbook {
         let base_lots = max_base_size / base_lot_size;
         let quote_lots = price
             .checked_div(quote_lot_size)
-            .ok_or(MarketError::MathOverflow)?;
+            .ok_or(MarketError::UnderFlow)?;
 
         // ── 1. Lock funds ──
         match side {
@@ -175,6 +176,7 @@ pub mod orderbook {
                 let maker_entry = market.get_trader_entry(&fill.maker_owner);
                 // updating maker's trading entry
                 update_trader_entry(true, side, fill, maker_entry, base_lot_size, quote_lot_size)?;
+
                 let taker_entry = market.get_trader_entry(&owner.key());
                 // updating taker's trading entry
                 update_trader_entry(
