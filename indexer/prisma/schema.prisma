@@ -54,12 +54,13 @@ model Order {
   filledLots    Int  @default(0)
   
   // Updated by OrderCancelledEvent
-  status        String   @default("open")  // "open" | "partial" | "filled" | "cancelled"
+  status        OrderStatus   @default(Open)  // "open" | "partial" | "filled" | "cancelled"
   
   // Timestamps
   placedAt      DateTime              // from OrderPlacedEvent.timestamp
   cancelledAt   DateTime?             // from OrderCancelledEvent.timestamp (nullable)
   createdAt     DateTime @default(now())
+  settledAt     DateTime?
 
   @@index([ownerAddress, marketAddress])
   @@index([marketAddress, status])
@@ -71,4 +72,5 @@ enum OrderStatus {
   Partial
   filled
   Cancelled
+  Settled
 }
