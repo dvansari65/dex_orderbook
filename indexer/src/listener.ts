@@ -1,11 +1,12 @@
-import { AnchorProvider, Program, EventParser, Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, EventParser, Idl, BN } from "@coral-xyz/anchor";
 import { AccountInfo, Connection, PublicKey } from "@solana/web3.js";
-import idl from "./idl/orderbook.json";
-import { Event, EventQueue, Market, Slab } from "../types/market";
+import idl from "../idl/orderbook.json";
+import { Orderbook } from "../types/orderbook"
+import {Market, Slab } from "../types/market";
 
 export class EventListener {
   private connection: Connection;
-  private program: Program;
+  private program: Program<Orderbook>;
   private eventParser: EventParser;
   private logSubscriptionId: number | null = null;
   private accountSubscriptions: Map<string, number> = new Map();
@@ -20,7 +21,7 @@ export class EventListener {
       commitment: "confirmed",
     });
 
-    this.program = new Program(idl as Idl, provider);
+    this.program = new Program(idl as any, provider);
     this.eventParser = new EventParser(
       new PublicKey(programId),
       this.program.coder
@@ -45,12 +46,12 @@ export class EventListener {
             return;
           }
 
-         const relevant = events
-                      .filter((e)=>this.isRelevantEvent(e.name))
-                      .map((e)=>({...e,signature:logs.signature}))
+          const relevant = events
+            .filter((e) => this.isRelevantEvent(e.name))
+            .map((e) => ({ ...e, signature: logs.signature }))
           if (relevant.length === 0) return;
           callback(relevant)
-          
+
         } catch (error) {
           console.error("⚠️ Error parsing events:", error);
         }
@@ -91,7 +92,7 @@ export class EventListener {
       const accountInfo = await this.connection.getAccountInfo(
         new PublicKey(marketPubKey)
       );
-
+      console.log("market account:", accountInfo)
       if (!accountInfo) {
         throw new Error("Market account not found");
       }
@@ -109,7 +110,7 @@ export class EventListener {
   }
 
   async fetchAskSlabState(askSlabKey: string): Promise<Slab | null> {
-   const bidData =  await this.fetchSlabState(askSlabKey, "ask");
+    const bidData = await this.fetchSlabState(askSlabKey, "ask");
     return bidData
   }
 
@@ -140,7 +141,7 @@ export class EventListener {
       let slabData;
 
       try {
-        slabData =  this.program.coder.accounts.decode(
+        slabData = this.program.coder.accounts.decode(
           "slab",
           accountInfo.data
         );
@@ -153,36 +154,35 @@ export class EventListener {
         console.warn(`⚠️ Failed to decode ${side} slab data`);
         return null;
       }
-      
+
       return slabData;
     } catch (error: any) {
       console.error(`❌ Error fetching ${side} slab:`, error.message);
       return null;
     }
   }
-
-  async fetchEventQueue(eventPubKey: string): Promise<EventQueue | null> {
-    try {
-      const accountInfo = await this.connection.getAccountInfo(
-        new PublicKey(eventPubKey)
-      );
-
-      if (!accountInfo) {
-        throw new Error("Event queue account not found");
-      }
-
-      const eventQueue = this.program.coder.accounts.decode(
-        "eventQueue",
-        accountInfo.data
-      );
-
-      return eventQueue;
-    } catch (error) {
-      console.error("❌ Error fetching event queue:", error);
-      return null;
-    }
+  
+  getOpenOrderPda(userPubkey: string,market:string): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("open_order"),
+        new PublicKey(market).toBuffer(),
+        new PublicKey(userPubkey).toBuffer()
+      ],
+      this.program.programId
+    )
+    return pda
   }
-
+  getVaultSigner(market: string): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("vault_signer"),
+        new PublicKey(market).toBuffer()
+      ],
+      this.program.programId
+    )
+    return pda
+  }
   async subscribeToAccount(
     accountPubKey: string,
     callback: (accountInfo: AccountInfo<Buffer>) => void
