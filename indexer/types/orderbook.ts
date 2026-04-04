@@ -28,81 +28,6 @@ export type Orderbook = {
       "accounts": [
         {
           "name": "market",
-          "writable": true,
-          "relations": [
-            "openOrder"
-          ]
-        },
-        {
-          "name": "openOrder",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vaultSigner",
-          "docs": [
-            "This is a PDA used only as the authority for the token vaults.",
-            "It holds no data, is never read or written, and is only used for signing.",
-            "Safe because Anchor verifies the PDA seeds & bump."
-          ],
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "slab",
-          "writable": true
-        },
-        {
-          "name": "eventQueue",
           "writable": true
         },
         {
@@ -148,37 +73,22 @@ export type Orderbook = {
           }
         },
         {
-          "name": "quoteVault",
-          "writable": true
-        },
-        {
-          "name": "baseVault",
-          "writable": true
-        },
-        {
-          "name": "userBaseVault",
-          "writable": true
-        },
-        {
-          "name": "userQuoteVault",
-          "writable": true
-        },
-        {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "openOrder"
-          ]
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "signer": true
         }
       ],
       "args": [
         {
           "name": "orderId",
           "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "side"
+            }
+          }
         }
       ]
     },
@@ -241,11 +151,6 @@ export type Orderbook = {
               }
             ]
           }
-        },
-        {
-          "name": "eventQueue",
-          "writable": true,
-          "signer": true
         },
         {
           "name": "baseVault",
@@ -330,84 +235,21 @@ export type Orderbook = {
       ]
     },
     {
-      "name": "initializeOpenOrder",
+      "name": "placeIocOrder",
       "discriminator": [
-        138,
-        205,
-        26,
-        73,
-        82,
-        35,
-        90,
-        212
+        99,
+        220,
+        219,
+        190,
+        132,
+        253,
+        111,
+        233
       ],
       "accounts": [
-        {
-          "name": "openOrder",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
         {
           "name": "market",
           "writable": true
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "placeOrder",
-      "discriminator": [
-        51,
-        194,
-        155,
-        175,
-        109,
-        130,
-        96,
-        106
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "relations": [
-            "openOrder"
-          ]
         },
         {
           "name": "asks",
@@ -452,39 +294,119 @@ export type Orderbook = {
           }
         },
         {
-          "name": "openOrder",
+          "name": "quoteVault",
+          "writable": true
+        },
+        {
+          "name": "baseVault",
+          "writable": true
+        },
+        {
+          "name": "userBaseVault",
+          "writable": true
+        },
+        {
+          "name": "userQuoteVault",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "baseQty",
+          "type": "u64"
+        },
+        {
+          "name": "priceInRawUnits",
+          "type": "u64"
+        },
+        {
+          "name": "orderType",
+          "type": {
+            "defined": {
+              "name": "orderType"
+            }
+          }
+        },
+        {
+          "name": "clientOrderId",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "side"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "placeLimitOrder",
+      "discriminator": [
+        108,
+        176,
+        33,
+        186,
+        146,
+        229,
+        1,
+        197
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "asks",
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
+                  97,
+                  115,
+                  107,
+                  115
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
               }
             ]
           }
         },
         {
-          "name": "eventQueue",
-          "writable": true
+          "name": "bids",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  105,
+                  100,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
         },
         {
           "name": "quoteVault",
@@ -504,10 +426,7 @@ export type Orderbook = {
         },
         {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "openOrder"
-          ]
+          "signer": true
         },
         {
           "name": "tokenProgram",
@@ -544,22 +463,124 @@ export type Orderbook = {
           }
         }
       ]
+    },
+    {
+      "name": "placePostOnlyOrder",
+      "discriminator": [
+        253,
+        171,
+        187,
+        207,
+        158,
+        181,
+        93,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "asks",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  115,
+                  107,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bids",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  105,
+                  100,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quoteVault",
+          "writable": true
+        },
+        {
+          "name": "baseVault",
+          "writable": true
+        },
+        {
+          "name": "userBaseVault",
+          "writable": true
+        },
+        {
+          "name": "userQuoteVault",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "baseQty",
+          "type": "u64"
+        },
+        {
+          "name": "priceInRawUnits",
+          "type": "u64"
+        },
+        {
+          "name": "orderType",
+          "type": {
+            "defined": {
+              "name": "orderType"
+            }
+          }
+        },
+        {
+          "name": "clientOrderId",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "side"
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
-    {
-      "name": "eventQueue",
-      "discriminator": [
-        41,
-        208,
-        116,
-        209,
-        173,
-        116,
-        141,
-        68
-      ]
-    },
     {
       "name": "market",
       "discriminator": [
@@ -571,19 +592,6 @@ export type Orderbook = {
         227,
         198,
         154
-      ]
-    },
-    {
-      "name": "openOrders",
-      "discriminator": [
-        139,
-        166,
-        123,
-        206,
-        111,
-        2,
-        116,
-        33
       ]
     },
     {
@@ -722,129 +730,36 @@ export type Orderbook = {
   "errors": [
     {
       "code": 6000,
-      "name": "marketActiveError",
-      "msg": "Market is paused!"
+      "name": "orderNotFound",
+      "msg": "Order not found in the Slab!"
     },
     {
       "code": 6001,
-      "name": "marketOrderSizeError",
-      "msg": "Max base size should be greater than minimum order size!"
+      "name": "invalidQty",
+      "msg": "Invalid quantity!"
     },
     {
       "code": 6002,
-      "name": "mathOverflow",
-      "msg": "Value overflowed!"
+      "name": "invalidPrice",
+      "msg": "Invalid price!"
     },
     {
       "code": 6003,
-      "name": "noOrders",
-      "msg": "No orders"
+      "name": "duplicateOrderId",
+      "msg": "Duplicate order id!"
     },
     {
       "code": 6004,
-      "name": "orderIdOverFlow",
-      "msg": "Order id overflow!"
+      "name": "invalidIndex",
+      "msg": "Invalid inserting index!"
     },
     {
       "code": 6005,
-      "name": "insufficientQuoteBalance",
-      "msg": "insufficient balance!"
-    },
-    {
-      "code": 6006,
-      "name": "insufficientBaseBalance",
-      "msg": "insufficient balance!"
-    },
-    {
-      "code": 6007,
-      "name": "invalidTokenAccountOwner",
-      "msg": "Invalid token owner!"
-    },
-    {
-      "code": 6008,
-      "name": "invalidTokenMint",
-      "msg": "Invalid token Mint!"
-    },
-    {
-      "code": 6009,
-      "name": "destinationVaultUninitialized",
-      "msg": "Destination vault is uninitialise!"
-    },
-    {
-      "code": 6010,
-      "name": "invalidMarketAccount",
-      "msg": "Invalid market account!"
+      "name": "underFlow",
+      "msg": "Quantity underflow!"
     }
   ],
   "types": [
-    {
-      "name": "eventQueue",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "head",
-            "type": "u32"
-          },
-          {
-            "name": "tail",
-            "type": "u32"
-          },
-          {
-            "name": "count",
-            "type": "u32"
-          },
-          {
-            "name": "events",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "queueEvent"
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "eventType",
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "place"
-          },
-          {
-            "name": "fill"
-          },
-          {
-            "name": "partialFill"
-          },
-          {
-            "name": "cancel"
-          },
-          {
-            "name": "reduce"
-          },
-          {
-            "name": "evict"
-          },
-          {
-            "name": "expire"
-          },
-          {
-            "name": "feeCollected"
-          },
-          {
-            "name": "timeInForce"
-          }
-        ]
-      }
-    },
     {
       "name": "feeCollectedEvent",
       "type": {
@@ -878,6 +793,10 @@ export type Orderbook = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "globalSeq",
+            "type": "u64"
+          },
           {
             "name": "nextOrderId",
             "type": "u64"
@@ -954,6 +873,16 @@ export type Orderbook = {
                 64
               ]
             }
+          },
+          {
+            "name": "traderEntry",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "traderEntry"
+                }
+              }
+            }
           }
         ]
       }
@@ -1005,104 +934,6 @@ export type Orderbook = {
           {
             "name": "prev",
             "type": "u32"
-          }
-        ]
-      }
-    },
-    {
-      "name": "openOrders",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "baseFree",
-            "type": "u64"
-          },
-          {
-            "name": "baseLocked",
-            "type": "u64"
-          },
-          {
-            "name": "quoteFree",
-            "type": "u64"
-          },
-          {
-            "name": "quoteLocked",
-            "type": "u64"
-          },
-          {
-            "name": "orders",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "order"
-                }
-              }
-            }
-          },
-          {
-            "name": "ordersCount",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "order",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "orderType",
-            "type": {
-              "defined": {
-                "name": "orderType"
-              }
-            }
-          },
-          {
-            "name": "orderId",
-            "type": "u64"
-          },
-          {
-            "name": "side",
-            "type": {
-              "defined": {
-                "name": "side"
-              }
-            }
-          },
-          {
-            "name": "price",
-            "type": "u64"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "quantity",
-            "type": "u64"
-          },
-          {
-            "name": "clientOrderId",
-            "type": "u64"
-          },
-          {
-            "name": "orderStatus",
-            "type": {
-              "defined": {
-                "name": "orderStatus"
-              }
-            }
           }
         ]
       }
@@ -1431,6 +1262,9 @@ export type Orderbook = {
           },
           {
             "name": "open"
+          },
+          {
+            "name": "cancel"
           }
         ]
       }
@@ -1448,62 +1282,6 @@ export type Orderbook = {
           },
           {
             "name": "postOnly"
-          }
-        ]
-      }
-    },
-    {
-      "name": "queueEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "eventType",
-            "type": {
-              "defined": {
-                "name": "eventType"
-              }
-            }
-          },
-          {
-            "name": "orderId",
-            "type": "u64"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "counterparty",
-            "type": "pubkey"
-          },
-          {
-            "name": "side",
-            "type": {
-              "defined": {
-                "name": "side"
-              }
-            }
-          },
-          {
-            "name": "price",
-            "type": "u64"
-          },
-          {
-            "name": "baseQuantity",
-            "type": "u64"
-          },
-          {
-            "name": "clientOrderId",
-            "type": "u64"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "marketPubkey",
-            "type": "pubkey"
           }
         ]
       }
@@ -1571,6 +1349,53 @@ export type Orderbook = {
           },
           {
             "name": "lastValidUnixTimestampInSeconds",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "traderEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "traderKey",
+            "type": "pubkey"
+          },
+          {
+            "name": "traderState",
+            "type": {
+              "defined": {
+                "name": "traderState"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "traderState",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "quoteLotsLocked",
+            "type": "u64"
+          },
+          {
+            "name": "quoteLotsFree",
+            "type": "u64"
+          },
+          {
+            "name": "baseLotsFree",
+            "type": "u64"
+          },
+          {
+            "name": "baseLotsLocked",
             "type": "u64"
           }
         ]
