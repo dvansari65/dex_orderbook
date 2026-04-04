@@ -98,36 +98,6 @@ pub enum EventType {
 }
 
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, InitSpace, Debug)]
-pub struct QueueEvent {
-    pub global_seq: u64,      // ordering guarantee for indexer
-    pub maker_order_id: u64,
-    pub event_type: EventType,
-    pub order_id: u64,
-    pub owner: Pubkey,
-    pub counterparty: Pubkey,
-    pub side: Side,
-    pub price: u64,
-    pub base_quantity: u64,
-    pub client_order_id: u64,
-    pub timestamp: i64,
-    pub market_pubkey: Pubkey,
-    pub taker_remaining_qty:u64,
-    pub maker_remaining_qty:u64
-}
-
-
-#[account]
-#[derive(InitSpace,Debug)]
-pub struct EventQueue {
-    pub head: u32,
-    pub tail: u32,
-    pub count: u32,
-    #[max_len(28)]    
-    pub events: Vec<QueueEvent>,
-}
-
-
 pub struct MatchResult {
     pub maker_qty:u64 , // this is maker's remained qty after order matching
     pub taker_qty:u64,  // this is taker's remained qty after order matching
@@ -154,7 +124,7 @@ pub struct LockResult {
     pub quote_lots: u64,
     pub amount_locked: u64,
 }
-
+#[derive(Clone, Copy,Debug)]
 pub struct FillRecord {
     pub maker_order_id: u64,
     pub maker_owner: Pubkey,
@@ -180,5 +150,7 @@ impl Market {
                     .find(|entry| entry.trader_key == *trader_key);
             return entry;
     }
-
+    pub fn get_trader_index(&self, owner: &Pubkey) -> Option<usize> {
+        self.trader_entry.iter().position(|t| &t.trader_key == owner)
+    }
 }
