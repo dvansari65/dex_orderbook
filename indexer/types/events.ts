@@ -8,15 +8,15 @@ export enum Side {
 }
 
 
-export interface OrderPlacedEvent {
-  market: PublicKey;
-  owner: PublicKey;
-  orderId: BN;
-  clientOrderId: BN;
-  side: Side;
-  price: BN;
-  baseLots: BN;
-  timestamp: BN;
+export interface OrderPlacedEventData {
+  market: { toString: () => string };
+  owner: { toString: () => string };
+  orderId: { toString: () => string };
+  clientOrderId: { toString: () => string };
+  side: { bid?: object; ask?: object };
+  price: { toNumber: () => number };
+  baseLots: { toNumber: () => number };
+  timestamp: { toNumber: () => number };
 }
 
 export interface OrderFillEvent {

@@ -50,13 +50,22 @@ export interface EventQueue {
 
 // Event (emitted)
 export interface Event {
-  orderId: number;         
-  eventType: EventType;   
-  price: number;            
-  quantity: number;       
-  maker: string;        
-  taker: number;        
-  timestamp: number;       
+  globalSeq: number,
+  makerOrderId: number,
+  owner: string,
+  counterParty: string,
+  side: Side,
+  baseQuantity: number,// filled qty
+  clientOrderId: number,
+  marketPubkey: string,
+  takerRemainingQty: number,
+  makerRemainingQty: number,
+  orderId: number;
+  eventType: EventType;
+  price: number;
+  quantity: number;
+  maker: string;
+  timestamp: number;
 }
 
 export enum EventType {
@@ -64,6 +73,10 @@ export enum EventType {
   Fill = 1,
   Cancel = 2,
   PartialFill = 3,
+  Evict = 5,
+  Expire = 6,
+  FeeCollected = 7,
+  TimeInForce = 8
 }
 
 // Open Orders
@@ -110,7 +123,7 @@ export interface DisplayOrder {
 }
 
 export interface convertNodeOutputType {
-  price:number,
-  quantity:number,
-  orderId:number
+  price: number,
+  quantity: number,
+  orderId: number
 }
