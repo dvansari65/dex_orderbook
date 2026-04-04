@@ -1,3 +1,4 @@
+import { OrderStatus } from "../generated/prisma/enums";
 import prisma from "../lib/prisma";
 import { OrderPlacedEventData, Side } from "../types/events";
 
@@ -12,7 +13,7 @@ export const getOrderHistory = async (userPublicKey: string | null, marketKey: s
       console.error("Missing userPublicKey or marketKey")
       return []
     }
-
+    
     const orders = await prisma.order.findMany({
       where: {
         marketAddress: marketKey,
@@ -68,12 +69,9 @@ export const createOrder = async (
         console.error("createOrder: missing required fields", data);
         return;
     }
-
     // ✅ Same pattern as your convertEvent
     const sideStr = side && "bid" in side ? Side.Bid : Side.Ask;
     const placedAt = new Date(timestamp.toNumber() * 1000);
-    console.log("price:",price)
-    console.log("qty:",baseLots)
     try {
         await prisma.order.upsert({
             where: { orderId: orderId.toString() },
@@ -87,11 +85,10 @@ export const createOrder = async (
                 price: price.toNumber(), // storing price in quote lots to avoid decimals 
                 baseLots: baseLots.toNumber(), // storing number or token in base lots for decimal precision
                 filledLots: 0,
-                status: "open",
+                status: OrderStatus.Open,
                 placedAt,
             },
         });
-        console.log(`✅ Order created: ${orderId.toString()} | ${sideStr} | price: ${price.toNumber() / 10}`);
     } catch (error) {
         console.error("createOrder: failed to insert order", error);
         throw error;
