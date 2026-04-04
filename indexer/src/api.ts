@@ -15,15 +15,26 @@ dotenv.config();
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const RPC_URL    = process.env.RPC_URL    || "http://127.0.0.1:8899";
-const PROGRAM_ID = process.env.PROGRAM_ID || "";
+const NODE_ENV     = process.env.NODE_ENV || "development";
+const IS_PROD      = NODE_ENV === "production";
+
+const RPC_URL      = process.env.RPC_URL      || "http://127.0.0.1:8899";
+const PROGRAM_ID   = process.env.PROGRAM_ID   || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
-const PORT       = process.env.PORT       || 3001;
+const PORT         = process.env.PORT         || 3002;
 
 if (!PROGRAM_ID || !MARKET_PUBKEY) {
-  console.error("❌ PROGRAM_ID and MARKET_PUBKEY must be set in .env");
-  process.exit(1);
+  if (IS_PROD) {
+    console.error("❌ PROGRAM_ID and MARKET_PUBKEY must be set in .env");
+    process.exit(1);
+  } else {
+    console.warn("⚠️  PROGRAM_ID or MARKET_PUBKEY not set — running in local dev mode");
+  }
 }
+
+console.log(`🌍 Environment: ${NODE_ENV}`);
+console.log(`📡 RPC:         ${RPC_URL}`);
+console.log(`🎯 Market:      ${MARKET_PUBKEY || "not set"}`);
 
 // ─── App Setup ────────────────────────────────────────────────────────────────
 
