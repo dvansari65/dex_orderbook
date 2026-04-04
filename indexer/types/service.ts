@@ -1,4 +1,4 @@
-import prisma from "@/lib/prisma";
+import prisma from "../lib/prisma";
 
 export type HandleFillEventResponse = Awaited<ReturnType<typeof prisma.candle.create>>
 
