@@ -355,8 +355,8 @@ pub fn update_trader_entry(
         .checked_mul(quote_lot_size)
         .ok_or(MarketError::MathOverflow)?;
 
-    // todo: update taker's entry
     match trader_entry {
+
         Some(entry) => match side {
             Side::Ask => {
                 // this side is in the perspective of the taker 

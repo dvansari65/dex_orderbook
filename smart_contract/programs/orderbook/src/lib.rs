@@ -20,7 +20,7 @@ pub mod orderbook {
 
     use crate::{
         assets::{lock_ask_funds, lock_bid_funds, unlock_ask_funds, unlock_bid_funds},
-        events::{dispatch_event, dispatch_fill_event, EventParams},
+        events::{EventParams, dispatch_event, dispatch_fill_event},
         helpers::{
             get_next_order_id, try_match, try_match_ioc, update_trader_entry, would_match_post_only,
         },
@@ -94,6 +94,7 @@ pub mod orderbook {
         let owner = &mut ctx.accounts.owner;
         let asks = &mut ctx.accounts.asks;
         let bids = &mut ctx.accounts.bids;
+     
         msg!("taker qty at the begining:{}", max_base_size);
         msg!("price at the beginning:{}",price);
         require!(market.market_status == 1, MarketError::MarketActiveError);
@@ -235,6 +236,10 @@ pub mod orderbook {
     ) -> Result<()> {
         let market = &mut ctx.accounts.market;
         let owner = &mut ctx.accounts.owner;
+        let quote_balance =  ctx.accounts.user_quote_vault.amount;
+        let base_balance = ctx.accounts.user_base_vault.amount;
+        msg!("base balance:{}",base_balance);
+        msg!("quote balance:{}",quote_balance);
         require!(market.market_status == 1, MarketError::MarketActiveError);
         require!(
             order_type == OrderType::ImmediateOrCancel,
@@ -282,7 +287,6 @@ pub mod orderbook {
                 base_lots,
             )?,
         };
-
         let opposite_slab = match side {
             Side::Ask => &mut ctx.accounts.bids,
             Side::Bid => &mut ctx.accounts.asks,
@@ -532,7 +536,9 @@ pub mod orderbook {
 
     pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64, side: Side) -> Result<()> {
         let owner = &ctx.accounts.owner;
-
+        let user_base_vault = &ctx.accounts.user_base_vault;
+        let user_quote_vault = &ctx.accounts.user_quote_vault;
+        let token_program = &ctx.accounts.token_program;
         let market = &mut ctx.accounts.market;
         let market_key = market.key();
 
@@ -547,7 +553,12 @@ pub mod orderbook {
         // Token transfer happens in consume_events when Cancel event is processed
         match side {
             Side::Ask => {
-                unlock_ask_funds(market, deleted_order.quantity, &owner.key())?;
+                unlock_ask_funds(
+                    market, 
+                    deleted_order.quantity, 
+                    &owner.key(),
+                    &user_base_vault,
+                )?;
             }
             Side::Bid => {
                 unlock_bid_funds(
@@ -555,6 +566,7 @@ pub mod orderbook {
                     deleted_order.price,
                     &owner.key(),
                     deleted_order.quantity,
+                    user_quote_vault
                 )?;
             }
         }
@@ -733,4 +745,10 @@ pub struct CancelOrder<'info> {
     pub bids: Account<'info, Slab>,
 
     pub owner: Signer<'info>,
+
+    #[account(mut)]
+    pub user_base_vault: Account<'info, AnchorTokenAccount>,
+    #[account(mut)]
+    pub user_quote_vault: Account<'info, AnchorTokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
