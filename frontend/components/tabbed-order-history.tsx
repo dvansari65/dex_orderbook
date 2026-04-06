@@ -2,13 +2,10 @@
 "use client"
 
 import { memo, useState } from "react";
-import { Order, ORDER_STATUS_MAP } from "@/types/order";
+import { Order } from "@/types/order";
 import OrderRows from "./orderbook-history";
 import FillsTab from "./fills-tab";
 import OpenOrdersTab from "./open-order-tab";
-import { fetchOrderAccount } from "@/api/fetch-orders";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useQueryClient } from "@tanstack/react-query";
 
 interface RecentTrade {
   price: number;
@@ -18,7 +15,9 @@ interface RecentTrade {
 }
 
 interface TabbedOrderHistoryProps {
+  orders: Order[];
   recentTrades: RecentTrade[];
+  onRefresh?: () => void;
 }
 
 /* ── column definitions per tab ── */
@@ -34,30 +33,8 @@ const TAB_LABELS: Record<string, string> = {
   history: 'Order History',
 };
 
-const TabbedOrderHistory = memo(({ recentTrades }: TabbedOrderHistoryProps) => {
+const TabbedOrderHistory = memo(({ orders, recentTrades, onRefresh }: TabbedOrderHistoryProps) => {
   const [activeTab, setActiveTab] = useState<'open' | 'fills' | 'history'>('open');
-  const { publicKey } = useWallet();
-  const queryClient = useQueryClient();
-
-  // ── all logic below is untouched ──────────────────────────────────────────
-  const { data: openOrderData, isLoading, refetch } = fetchOrderAccount(publicKey);
-
-  const orders: Order[] = openOrderData?.orders?.map((rawOrder: any) => {
-    const status = ORDER_STATUS_MAP[rawOrder.orderStatus as keyof typeof ORDER_STATUS_MAP] || 'open';
-    const side = rawOrder.side === 0 ? 'bid' : 'ask';
-    return {
-      orderId:       rawOrder.orderId.toString(),
-      side,
-      price:         Number(rawOrder.price)    / 1e6,
-      quantity:      Number(rawOrder.quantity) / 1e6,
-      filled:        0,
-      status,
-      orderType:     rawOrder.orderType,
-      owner:         rawOrder.owner.toString(),
-      clientOrderId: rawOrder.clientOrderId.toString(),
-      placedAt:      new Date().toISOString(),
-    };
-  }) || [];
 
   const openOrders = orders.filter(
     (order) => order.status === 'open' || order.status === 'partial'
@@ -70,10 +47,8 @@ const TabbedOrderHistory = memo(({ recentTrades }: TabbedOrderHistoryProps) => {
   };
 
   const handleRefresh = () => {
-    refetch();
-    queryClient.invalidateQueries({ queryKey: ["open-order", publicKey] });
+    onRefresh?.();
   };
-  // ── end untouched logic ───────────────────────────────────────────────────
 
   return (
     <div className="w-full h-full rounded-2xl bg-[#FAF8F6] flex flex-col overflow-hidden">
@@ -142,7 +117,7 @@ const TabbedOrderHistory = memo(({ recentTrades }: TabbedOrderHistoryProps) => {
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'open'    && <OpenOrdersTab orders={openOrders} />}
         {activeTab === 'fills'   && <FillsTab fills={recentTrades} />}
-        {activeTab === 'history' && <OrderRows orders={orders} isLoading={isLoading} />}
+        {activeTab === 'history' && <OrderRows orders={orders} />}
       </div>
 
       {/* ── Footer (same px-3 py-1 + phoenix-bg-main as spread bar) ── */}
