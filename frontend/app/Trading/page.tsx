@@ -17,6 +17,20 @@ interface RecentTrade {
   timestamp: string
 }
 
+const normalizeOrderStatus = (status: unknown): Order["status"] => {
+  switch (String(status).toLowerCase()) {
+    case "partial":
+      return "partial";
+    case "filled":
+      return "filled";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    default:
+      return "open";
+  }
+};
+
 const Trading = memo(() => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([])
@@ -25,17 +39,41 @@ const Trading = memo(() => {
 
   const fetchOrders = () => {
     if (!publicKey) return
-    socket.emit("user-pubkey", publicKey)
-    socket.on("order-history", (data: any) => setOrders(data))
+    socket.emit("user-pubkey", publicKey.toBase58())
   }
 
   useEffect(() => {
+    if (!publicKey) {
+      setOrders([]);
+      return;
+    }
+
+    const handleOrderHistory = (data: any[]) => {
+      const nextOrders = Array.isArray(data)
+        ? data.map((item) => ({
+            orderId: String(item.orderId),
+            side: (item.side === "ask" ? "ask" : "bid") as Order["side"],
+            price: Number(item.price ?? 0),
+            quantity: Number(item.quantity ?? 0),
+            filled: Number(item.filled ?? 0),
+            status: normalizeOrderStatus(item.status),
+            placedAt: item.placedAt,
+            clientOrderId: undefined,
+            orderType: undefined,
+            owner: undefined,
+          }))
+        : [];
+
+      setOrders(nextOrders);
+    };
+
     fetchOrders()
+    socket.on("order-history", handleOrderHistory)
     socket.on("order:filled", (trade: RecentTrade) => {
       setRecentTrades(prev => [trade, ...prev].slice(0, 20))
     })
     return () => {
-      socket.off("order-history")
+      socket.off("order-history", handleOrderHistory)
       socket.off("order:filled")
     }
   }, [socket, publicKey?.toString()])
@@ -53,7 +91,7 @@ const Trading = memo(() => {
 
         {/* Tabbed Order History */}
         <div className="min-h-0" style={{ flex: '0 0 calc(50% - 4px)' }}>
-          <TabbedOrderHistory recentTrades={recentTrades} />
+          <TabbedOrderHistory orders={orders} recentTrades={recentTrades} onRefresh={fetchOrders} />
         </div>
 
       </div>
