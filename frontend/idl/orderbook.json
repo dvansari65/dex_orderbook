@@ -22,44 +22,6 @@
       "accounts": [
         {
           "name": "market",
-          "writable": true,
-          "relations": [
-            "open_order"
-          ]
-        },
-        {
-          "name": "open_order",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_queue",
           "writable": true
         },
         {
@@ -106,102 +68,35 @@
         },
         {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "open_order"
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "order_id",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "consume_event",
-      "discriminator": [
-        223,
-        103,
-        141,
-        133,
-        189,
-        106,
-        201,
-        113
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "event_queue",
-          "writable": true
-        },
-        {
-          "name": "base_vault",
-          "writable": true
-        },
-        {
-          "name": "quote_vault",
-          "writable": true
-        },
-        {
-          "name": "vault_signer",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  115,
-                  105,
-                  103,
-                  110,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "taker_base_account",
-          "writable": true
-        },
-        {
-          "name": "taker_quote_account",
-          "writable": true
-        },
-        {
-          "name": "maker_base_account",
-          "writable": true
-        },
-        {
-          "name": "maker_quote_account",
-          "writable": true
-        },
-        {
-          "name": "crank",
           "signer": true
+        },
+        {
+          "name": "user_base_vault",
+          "writable": true
+        },
+        {
+          "name": "user_quote_vault",
+          "writable": true
         },
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "order_id",
+          "type": "u64"
+        },
+        {
+          "name": "side",
+          "type": {
+            "defined": {
+              "name": "Side"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "initialise_market",
@@ -262,11 +157,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "event_queue",
-          "writable": true,
-          "signer": true
         },
         {
           "name": "base_vault",
@@ -351,66 +241,6 @@
       ]
     },
     {
-      "name": "initialize_open_order",
-      "discriminator": [
-        138,
-        205,
-        26,
-        73,
-        82,
-        35,
-        90,
-        212
-      ],
-      "accounts": [
-        {
-          "name": "open_order",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "place_ioc_order",
       "discriminator": [
         99,
@@ -425,10 +255,7 @@
       "accounts": [
         {
           "name": "market",
-          "writable": true,
-          "relations": [
-            "open_order"
-          ]
+          "writable": true
         },
         {
           "name": "asks",
@@ -473,41 +300,6 @@
           }
         },
         {
-          "name": "open_order",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_queue",
-          "writable": true
-        },
-        {
           "name": "quote_vault",
           "writable": true
         },
@@ -525,10 +317,7 @@
         },
         {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "open_order"
-          ]
+          "signer": true
         },
         {
           "name": "token_program",
@@ -581,10 +370,7 @@
       "accounts": [
         {
           "name": "market",
-          "writable": true,
-          "relations": [
-            "open_order"
-          ]
+          "writable": true
         },
         {
           "name": "asks",
@@ -629,41 +415,6 @@
           }
         },
         {
-          "name": "open_order",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_queue",
-          "writable": true
-        },
-        {
           "name": "quote_vault",
           "writable": true
         },
@@ -681,10 +432,7 @@
         },
         {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "open_order"
-          ]
+          "signer": true
         },
         {
           "name": "token_program",
@@ -737,10 +485,7 @@
       "accounts": [
         {
           "name": "market",
-          "writable": true,
-          "relations": [
-            "open_order"
-          ]
+          "writable": true
         },
         {
           "name": "asks",
@@ -785,41 +530,6 @@
           }
         },
         {
-          "name": "open_order",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  101,
-                  110,
-                  95,
-                  111,
-                  114,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_queue",
-          "writable": true
-        },
-        {
           "name": "quote_vault",
           "writable": true
         },
@@ -837,10 +547,7 @@
         },
         {
           "name": "owner",
-          "signer": true,
-          "relations": [
-            "open_order"
-          ]
+          "signer": true
         },
         {
           "name": "token_program",
@@ -877,67 +584,9 @@
           }
         }
       ]
-    },
-    {
-      "name": "update_open_orders",
-      "discriminator": [
-        37,
-        146,
-        64,
-        218,
-        230,
-        254,
-        17,
-        142
-      ],
-      "accounts": [
-        {
-          "name": "taker_open_order",
-          "writable": true
-        },
-        {
-          "name": "maker_open_order",
-          "writable": true
-        },
-        {
-          "name": "market",
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "price_in_quote_lots",
-          "type": "u64"
-        },
-        {
-          "name": "quantity_in_base_lots",
-          "type": "u64"
-        },
-        {
-          "name": "side",
-          "type": {
-            "defined": {
-              "name": "Side"
-            }
-          }
-        }
-      ]
     }
   ],
   "accounts": [
-    {
-      "name": "EventQueue",
-      "discriminator": [
-        41,
-        208,
-        116,
-        209,
-        173,
-        116,
-        141,
-        68
-      ]
-    },
     {
       "name": "Market",
       "discriminator": [
@@ -949,19 +598,6 @@
         227,
         198,
         154
-      ]
-    },
-    {
-      "name": "OpenOrders",
-      "discriminator": [
-        139,
-        166,
-        123,
-        206,
-        111,
-        2,
-        116,
-        33
       ]
     },
     {
@@ -1100,184 +736,11 @@
   "errors": [
     {
       "code": 6000,
-      "name": "MarketActiveError",
-      "msg": "Market is paused!"
-    },
-    {
-      "code": 6001,
-      "name": "MarketOrderSizeError",
-      "msg": "Max base size should be greater than minimum order size!"
-    },
-    {
-      "code": 6002,
-      "name": "MathOverflow",
-      "msg": "Value overflowed!"
-    },
-    {
-      "code": 6003,
-      "name": "NoOrders",
-      "msg": "No orders"
-    },
-    {
-      "code": 6004,
-      "name": "OrderIdOverFlow",
-      "msg": "Order id overflow!"
-    },
-    {
-      "code": 6005,
-      "name": "InsufficientQuoteBalance",
-      "msg": "insufficient balance!"
-    },
-    {
-      "code": 6006,
-      "name": "InsufficientBaseBalance",
-      "msg": "insufficient balance!"
-    },
-    {
-      "code": 6007,
-      "name": "InvalidTokenAccountOwner",
-      "msg": "Invalid token owner!"
-    },
-    {
-      "code": 6008,
-      "name": "InvalidTokenMint",
-      "msg": "Invalid token Mint!"
-    },
-    {
-      "code": 6009,
-      "name": "DestinationVaultUninitialized",
-      "msg": "Destination vault is uninitialise!"
-    },
-    {
-      "code": 6010,
-      "name": "InvalidMarketAccount",
-      "msg": "Invalid market account!"
-    },
-    {
-      "code": 6011,
-      "name": "InvalidPrice",
-      "msg": "Invalid Quote Price!"
-    },
-    {
-      "code": 6012,
-      "name": "InvalidBaseQty",
-      "msg": "Invalid base quantity!"
-    },
-    {
-      "code": 6013,
-      "name": "InvalidTakerAccount",
-      "msg": "Invalid taker token account!"
-    },
-    {
-      "code": 6014,
-      "name": "InvalidMakerAccount",
-      "msg": "Invalid maker token account!"
-    },
-    {
-      "code": 6015,
-      "name": "InvalidOpenOrders",
-      "msg": "Invalid open orders account!"
-    },
-    {
-      "code": 6016,
-      "name": "InvalidEventQueue",
-      "msg": "Invalid event queue account!"
-    },
-    {
-      "code": 6017,
-      "name": "InvalidVault",
-      "msg": "Invalid vault account!"
-    },
-    {
-      "code": 6018,
-      "name": "EventQueueUnderflow",
-      "msg": "Event queue underflow!"
-    },
-    {
-      "code": 6019,
-      "name": "EventQueueEmpty",
-      "msg": "There is no events in Event queue!"
-    },
-    {
-      "code": 6020,
-      "name": "SeqOverflow",
-      "msg": "Sequence over flow!"
-    },
-    {
-      "code": 6021,
-      "name": "MissingMakerOpenOrder",
-      "msg": "Maker order missing!"
+      "name": "EntryNotFound",
+      "msg": "Trader entry not found!"
     }
   ],
   "types": [
-    {
-      "name": "EventQueue",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "head",
-            "type": "u32"
-          },
-          {
-            "name": "tail",
-            "type": "u32"
-          },
-          {
-            "name": "count",
-            "type": "u32"
-          },
-          {
-            "name": "events",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "QueueEvent"
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "EventType",
-      "repr": {
-        "kind": "rust"
-      },
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Place"
-          },
-          {
-            "name": "Fill"
-          },
-          {
-            "name": "PartialFill"
-          },
-          {
-            "name": "Cancel"
-          },
-          {
-            "name": "Reduce"
-          },
-          {
-            "name": "Evict"
-          },
-          {
-            "name": "Expire"
-          },
-          {
-            "name": "FeeCollected"
-          },
-          {
-            "name": "TimeInForce"
-          }
-        ]
-      }
-    },
     {
       "name": "FeeCollectedEvent",
       "type": {
@@ -1391,6 +854,16 @@
                 64
               ]
             }
+          },
+          {
+            "name": "trader_entry",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "TraderEntry"
+                }
+              }
+            }
           }
         ]
       }
@@ -1442,104 +915,6 @@
           {
             "name": "prev",
             "type": "u32"
-          }
-        ]
-      }
-    },
-    {
-      "name": "OpenOrders",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "base_free",
-            "type": "u64"
-          },
-          {
-            "name": "base_locked",
-            "type": "u64"
-          },
-          {
-            "name": "quote_free",
-            "type": "u64"
-          },
-          {
-            "name": "quote_locked",
-            "type": "u64"
-          },
-          {
-            "name": "orders",
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "Order"
-                }
-              }
-            }
-          },
-          {
-            "name": "orders_count",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "Order",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "order_type",
-            "type": {
-              "defined": {
-                "name": "OrderType"
-              }
-            }
-          },
-          {
-            "name": "order_id",
-            "type": "u64"
-          },
-          {
-            "name": "side",
-            "type": {
-              "defined": {
-                "name": "Side"
-              }
-            }
-          },
-          {
-            "name": "price",
-            "type": "u64"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "quantity",
-            "type": "u64"
-          },
-          {
-            "name": "client_order_id",
-            "type": "u64"
-          },
-          {
-            "name": "order_status",
-            "type": {
-              "defined": {
-                "name": "OrderStatus"
-              }
-            }
           }
         ]
       }
@@ -1893,78 +1268,6 @@
       }
     },
     {
-      "name": "QueueEvent",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "global_seq",
-            "type": "u64"
-          },
-          {
-            "name": "maker_order_id",
-            "type": "u64"
-          },
-          {
-            "name": "event_type",
-            "type": {
-              "defined": {
-                "name": "EventType"
-              }
-            }
-          },
-          {
-            "name": "order_id",
-            "type": "u64"
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "counterparty",
-            "type": "pubkey"
-          },
-          {
-            "name": "side",
-            "type": {
-              "defined": {
-                "name": "Side"
-              }
-            }
-          },
-          {
-            "name": "price",
-            "type": "u64"
-          },
-          {
-            "name": "base_quantity",
-            "type": "u64"
-          },
-          {
-            "name": "client_order_id",
-            "type": "u64"
-          },
-          {
-            "name": "timestamp",
-            "type": "i64"
-          },
-          {
-            "name": "market_pubkey",
-            "type": "pubkey"
-          },
-          {
-            "name": "taker_remaining_qty",
-            "type": "u64"
-          },
-          {
-            "name": "maker_remaining_qty",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "Side",
       "type": {
         "kind": "enum",
@@ -2027,6 +1330,53 @@
           },
           {
             "name": "last_valid_unix_timestamp_in_seconds",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraderEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "trader_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "trader_state",
+            "type": {
+              "defined": {
+                "name": "TraderState"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraderState",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "quote_lots_locked",
+            "type": "u64"
+          },
+          {
+            "name": "quote_lots_free",
+            "type": "u64"
+          },
+          {
+            "name": "base_lots_free",
+            "type": "u64"
+          },
+          {
+            "name": "base_lots_locked",
             "type": "u64"
           }
         ]
