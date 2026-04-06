@@ -20,7 +20,7 @@ pub mod orderbook {
 
     use crate::{
         assets::{lock_ask_funds, lock_bid_funds, unlock_ask_funds, unlock_bid_funds},
-        events::{EventParams, dispatch_event, dispatch_fill_event},
+        events::{dispatch_event, dispatch_fill_event, EventParams},
         helpers::{
             get_next_order_id, try_match, try_match_ioc, update_trader_entry, would_match_post_only,
         },
@@ -94,9 +94,9 @@ pub mod orderbook {
         let owner = &mut ctx.accounts.owner;
         let asks = &mut ctx.accounts.asks;
         let bids = &mut ctx.accounts.bids;
-     
+
         msg!("taker qty at the begining:{}", max_base_size);
-        msg!("price at the beginning:{}",price);
+        msg!("price at the beginning:{}", price);
         require!(market.market_status == 1, MarketError::MarketActiveError);
         require!(
             max_base_size >= market.base_lot_size,
@@ -106,7 +106,9 @@ pub mod orderbook {
         let quote_lot_size = market.quote_lot_size;
         let market_key = market.key();
         let order_id = get_next_order_id(market)?;
+
         let base_lots = max_base_size / base_lot_size;
+
         let quote_lots = price
             .checked_div(quote_lot_size)
             .ok_or(MarketError::UnderFlow)?;
@@ -118,6 +120,7 @@ pub mod orderbook {
             Side::Bid => lock_bid_funds(
                 market,
                 &owner,
+                &ctx.accounts.user_base_vault,
                 &ctx.accounts.user_quote_vault,
                 &ctx.accounts.quote_vault,
                 &ctx.accounts.token_program,
@@ -176,18 +179,11 @@ pub mod orderbook {
             for (_i, fill) in fills.iter().enumerate() {
                 let maker_entry = market.get_trader_entry(&fill.maker_owner);
                 // updating maker's trading entry
-                update_trader_entry(true, side, fill, maker_entry, base_lot_size, quote_lot_size)?;
+                update_trader_entry(true, side, fill, maker_entry)?;
 
                 let taker_entry = market.get_trader_entry(&owner.key());
                 // updating taker's trading entry
-                update_trader_entry(
-                    false,
-                    side,
-                    fill,
-                    taker_entry,
-                    base_lot_size,
-                    quote_lot_size,
-                )?;
+                update_trader_entry(false, side, fill, taker_entry)?;
                 // dispatch_fill_event pulls maker_order_id and maker_remaining_qty
                 // directly from fill — that is how maker_order_id gets into the event
                 dispatch_fill_event(
@@ -201,7 +197,7 @@ pub mod orderbook {
                 )?;
 
                 let remaining_qty = base_lots - fill.fill_qty;
-                msg!("taker remaining qty:{}",remaining_qty.to_string());
+                msg!("taker remaining qty:{}", remaining_qty.to_string());
                 if remaining_qty > 0 {
                     same_slab.insert_order(
                         order_id,
@@ -236,10 +232,10 @@ pub mod orderbook {
     ) -> Result<()> {
         let market = &mut ctx.accounts.market;
         let owner = &mut ctx.accounts.owner;
-        let quote_balance =  ctx.accounts.user_quote_vault.amount;
+        let quote_balance = ctx.accounts.user_quote_vault.amount;
         let base_balance = ctx.accounts.user_base_vault.amount;
-        msg!("base balance:{}",base_balance);
-        msg!("quote balance:{}",quote_balance);
+        msg!("base balance:{}", base_balance);
+        msg!("quote balance:{}", quote_balance);
         require!(market.market_status == 1, MarketError::MarketActiveError);
         require!(
             order_type == OrderType::ImmediateOrCancel,
@@ -272,6 +268,7 @@ pub mod orderbook {
             Side::Bid => lock_bid_funds(
                 market,
                 owner,
+                &ctx.accounts.user_base_vault,
                 &ctx.accounts.user_quote_vault,
                 &ctx.accounts.quote_vault,
                 &ctx.accounts.token_program,
@@ -312,25 +309,11 @@ pub mod orderbook {
         match fill_opt {
             Some(fill) => {
                 let maker_entry = market.get_trader_entry(&fill.maker_owner);
-                update_trader_entry(
-                    true,
-                    side,
-                    &fill,
-                    maker_entry,
-                    base_lot_size,
-                    quote_lot_size,
-                )?;
+                update_trader_entry(true, side, &fill, maker_entry)?;
 
                 // ── Access taker by index — no outstanding borrow on market ──
                 let taker_entry = market.trader_entry.get_mut(taker_index);
-                update_trader_entry(
-                    false,
-                    side,
-                    &fill,
-                    taker_entry,
-                    base_lot_size,
-                    quote_lot_size,
-                )?;
+                update_trader_entry(false, side, &fill, taker_entry)?;
 
                 remaining_qty = base_lots - fill.fill_qty;
                 execution_price = fill.execution_price;
@@ -366,12 +349,9 @@ pub mod orderbook {
         if remaining_qty > 0 {
             // Safe: taker_index was validated at the top, access by index avoids reborrow
             let entry = &mut market.trader_entry[taker_index];
-            let amount_move = remaining_qty
-                .checked_mul(base_lot_size)
-                .ok_or(MarketError::MathOverflow)?;
-
+            // amount to move back to the user,
             let quote_lots_to_move = execution_price
-                .checked_mul(quote_lot_size)
+                .checked_mul(remaining_qty)
                 .ok_or(MarketError::MathOverflow)?;
 
             match side {
@@ -379,13 +359,13 @@ pub mod orderbook {
                     entry.trader_state.base_lots_free = entry
                         .trader_state
                         .base_lots_free
-                        .checked_add(amount_move)
+                        .checked_add(remaining_qty)
                         .ok_or(MarketError::MathOverflow)?;
 
                     entry.trader_state.base_lots_locked = entry
                         .trader_state
                         .base_lots_locked
-                        .checked_sub(amount_move)
+                        .checked_sub(remaining_qty)
                         .ok_or(MarketError::UnderFlow)?;
                 }
                 Side::Bid => {
@@ -394,7 +374,7 @@ pub mod orderbook {
                     // quote locked 500-300 = 200 and base free 3, quote free = 200
                     entry.trader_state.quote_lots_free = entry
                         .trader_state
-                        .base_lots_free
+                        .quote_lots_free
                         .checked_add(quote_lots_to_move)
                         .ok_or(MarketError::MathOverflow)?;
 
@@ -421,7 +401,6 @@ pub mod orderbook {
                 taker_remaining_qty: remaining_qty,
             };
             dispatch_event(market, event_params)?;
-            msg!("place_ioc_order: id={}", order_id);
         }
         Ok(())
     }
@@ -470,6 +449,7 @@ pub mod orderbook {
                 lock_bid_funds(
                     market,
                     &ctx.accounts.owner,
+                    &ctx.accounts.user_base_vault,
                     &ctx.accounts.user_quote_vault,
                     &ctx.accounts.quote_vault,
                     &ctx.accounts.token_program,
@@ -538,7 +518,6 @@ pub mod orderbook {
         let owner = &ctx.accounts.owner;
         let user_base_vault = &ctx.accounts.user_base_vault;
         let user_quote_vault = &ctx.accounts.user_quote_vault;
-        let token_program = &ctx.accounts.token_program;
         let market = &mut ctx.accounts.market;
         let market_key = market.key();
 
@@ -554,8 +533,8 @@ pub mod orderbook {
         match side {
             Side::Ask => {
                 unlock_ask_funds(
-                    market, 
-                    deleted_order.quantity, 
+                    market,
+                    deleted_order.quantity,
                     &owner.key(),
                     &user_base_vault,
                 )?;
@@ -566,7 +545,7 @@ pub mod orderbook {
                     deleted_order.price,
                     &owner.key(),
                     deleted_order.quantity,
-                    user_quote_vault
+                    user_quote_vault,
                 )?;
             }
         }
