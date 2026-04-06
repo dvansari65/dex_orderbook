@@ -12,6 +12,7 @@ export class EventListener {
   private accountSubscriptions: Map<string, number> = new Map();
 
   constructor(rpcURL: string, programId: string) {
+    console.log("rpc url:",rpcURL)
     this.connection = new Connection(rpcURL, {
       commitment: "confirmed",
       wsEndpoint: rpcURL.replace("http", "ws").replace("8899", "8900"),
@@ -67,13 +68,18 @@ export class EventListener {
   }
 
   private isRelevantEvent(eventName: string): boolean {
-    const relevantEvents = [
+    const relevantEvents = new Set([
       "orderPlacedEvent",
+      "OrderPlacedEvent",
       "orderFillEvent",
+      "OrderFillEvent",
       "orderPartialFillEvent",
+      "OrderPartialFillEvent",
+      "orderCancelledEvent",
+      "OrderCancelledEvent",
       "orderCancelEvent",
-    ];
-    return relevantEvents.includes(eventName);
+    ]);
+    return relevantEvents.has(eventName);
   }
 
   async stop(): Promise<void> {
