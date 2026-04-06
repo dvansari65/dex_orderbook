@@ -69,7 +69,9 @@ pub enum MarketError {
     #[msg("Sequence over flow!")]
     SeqOverflow,
     #[msg("Maker order missing!")]
-    MissingMakerOpenOrder
+    MissingMakerOpenOrder,
+    #[msg("Quantity is too low!")]
+    UnderFlow,
 }
 
 #[error_code]
@@ -85,7 +87,19 @@ pub enum OpenOrderError {
     #[msg("Base quantity is too large!")]
     OverFlow,
     #[msg("Invalid Maker open order!")]
-    InvalidMakerOpenOrder
+    InvalidMakerOpenOrder,
+}
+
+#[error_code]
+pub enum FillRecordError {
+    #[msg("Fill Record not found!")]
+    MissingFillRecord,
+}
+
+#[error_code]
+pub enum TraderEntryError {
+    #[msg("Trader entry not found!")]
+    EntryNotFound,
 }
 
 #[error_code]
@@ -151,5 +165,5 @@ pub enum ConsumeEventsError {
     #[msg("Invalid taker base ATA!")]
     InvalidOwnerBaseAta,
     #[msg("Invalid taker quote ATA!")]
-    InvalidOwnerQuoteAta
+    InvalidOwnerQuoteAta,
 }
