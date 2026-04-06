@@ -2,11 +2,8 @@ use std::u32;
 
 use anchor_lang::prelude::*;
 
-use crate::error::{
-    EventError, MarketError, OrderError, SlabError,
-    TraderEntryError,
-};
-use crate::state::{ FillRecord, Market, OrderStatus, OrderType, TraderEntry};
+use crate::error::{MarketError, OrderError, SlabError, TraderEntryError};
+use crate::state::{FillRecord, Market, OrderStatus, OrderType, TraderEntry};
 
 use crate::state::{Node, Slab};
 use crate::states::order_schema::enums::Side;
@@ -339,29 +336,19 @@ pub fn update_trader_entry(
     is_maker: bool,
     side: Side,
     fill_record: &FillRecord,
-    trader_entry:Option<&mut TraderEntry>,
-    base_lot_size: u64,
-    quote_lot_size: u64,
+    trader_entry: Option<&mut TraderEntry>,
 ) -> Result<()> {
-    let base_amount_to_update = fill_record // base amount to update of taker
-        .fill_qty
-        .checked_mul(base_lot_size)
-        .ok_or(MarketError::MathOverflow)?;
-
     let quote_amount_to_update = fill_record
         .execution_price
         .checked_mul(fill_record.fill_qty)
-        .ok_or(MarketError::MathOverflow)?
-        .checked_mul(quote_lot_size)
         .ok_or(MarketError::MathOverflow)?;
 
     match trader_entry {
-
         Some(entry) => match side {
             Side::Ask => {
-                // this side is in the perspective of the taker 
+                // this side is in the perspective of the taker
                 //  so when side is ask for taker then side will be bid for maker
-                // that's why we are checking is_maker, if it is maker then it will update entries opposite 
+                // that's why we are checking is_maker, if it is maker then it will update entries opposite
                 // taker's side
                 if is_maker {
                     entry.trader_state.quote_lots_locked = entry
@@ -373,7 +360,7 @@ pub fn update_trader_entry(
                     entry.trader_state.base_lots_free = entry
                         .trader_state
                         .base_lots_free
-                        .checked_add(base_amount_to_update)
+                        .checked_add(fill_record.fill_qty)
                         .ok_or(MarketError::MathOverflow)?
                 } else {
                     entry.trader_state.quote_lots_free = entry
@@ -385,7 +372,7 @@ pub fn update_trader_entry(
                     entry.trader_state.base_lots_locked = entry
                         .trader_state
                         .base_lots_locked
-                        .checked_sub(base_amount_to_update)
+                        .checked_sub(fill_record.fill_qty)
                         .ok_or(MarketError::MathOverflow)?
                 }
             }
@@ -400,7 +387,7 @@ pub fn update_trader_entry(
                     entry.trader_state.base_lots_locked = entry
                         .trader_state
                         .base_lots_locked
-                        .checked_sub(base_amount_to_update)
+                        .checked_sub(fill_record.fill_qty)
                         .ok_or(MarketError::MathOverflow)?
                 } else {
                     entry.trader_state.quote_lots_locked = entry
@@ -412,7 +399,7 @@ pub fn update_trader_entry(
                     entry.trader_state.base_lots_free = entry
                         .trader_state
                         .base_lots_free
-                        .checked_add(base_amount_to_update)
+                        .checked_add(fill_record.fill_qty)
                         .ok_or(MarketError::MathOverflow)?;
                 }
             }
