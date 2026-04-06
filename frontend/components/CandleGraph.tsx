@@ -1,30 +1,65 @@
 "use client"
 
 import { useEffect, useRef, useState } from 'react';
-import { createChart, CandlestickSeries, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
+import {
+  createChart,
+  CandlestickSeries,
+  IChartApi,
+  ISeriesApi,
+  ColorType,
+  CandlestickData,
+  Time,
+  BusinessDay,
+} from 'lightweight-charts';
 import { useSocket } from '@/providers/SocketProvider';
-import CandleChartSkeleton from './ui/candle-chart-skeleton';
 
-interface CandleData { time: string; open: number; high: number; low: number; close: number; }
-interface CandleUpdate { candle: CandleData; volume: number; timestamp: string; }
+type Resolution = '1m' | '5m' | '1h' | '1d';
+type CandleData = CandlestickData<Time>;
+
+interface CandleUpdate {
+  candles?: Partial<Record<Resolution, CandleData>>;
+  volumes?: Partial<Record<Resolution, number>>;
+  timestamp: string;
+}
+
+const timeKey = (time: Time): string => {
+  if (typeof time === 'number') return `ts:${time}`;
+  if (typeof time === 'string') return `str:${time}`;
+
+  const businessDay = time as BusinessDay;
+  return `bd:${businessDay.year}-${businessDay.month}-${businessDay.day}`;
+};
+
+const timeSortValue = (time: Time): number | string => {
+  if (typeof time === 'number' || typeof time === 'string') return time;
+
+  const businessDay = time as BusinessDay;
+  return `${businessDay.year.toString().padStart(4, '0')}-${businessDay.month
+    .toString()
+    .padStart(2, '0')}-${businessDay.day.toString().padStart(2, '0')}`;
+};
 
 const sanitizeCandles = (candles: CandleData[]): CandleData[] => {
   const deduped = Object.values(
-    candles.reduce((acc, c) => { acc[c.time] = c; return acc; }, {} as Record<string, CandleData>)
-  ).sort((a, b) => (a.time > b.time ? 1 : -1));
-
-  return deduped.filter(c => {
-    const isFlat = c.open === c.high && c.high === c.low && c.low === c.close;
-    if (isFlat) console.warn('Filtered placeholder candle:', c);
-    return !isFlat;
+    candles.reduce((acc, c) => {
+      acc[timeKey(c.time)] = c;
+      return acc;
+    }, {} as Record<string, CandleData>)
+  ).sort((a, b) => {
+    const left = timeSortValue(a.time);
+    const right = timeSortValue(b.time);
+    if (left === right) return 0;
+    return left > right ? 1 : -1;
   });
+
+  return deduped;
 };
 
 export default function CandleChart() {
   const chartRef         = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef  = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const [resolution, setResolution] = useState('1d');
+  const [resolution, setResolution] = useState<Resolution>('1d');
   const socket = useSocket();
 
   useEffect(() => {
@@ -62,8 +97,9 @@ export default function CandleChart() {
     };
 
     const handleCandleUpdate = (updateData: CandleUpdate) => {
-      if (!updateData?.candle?.time) return;
-      candleSeries.update(updateData.candle);
+      const candle = updateData?.candles?.[resolution];
+      if (!candle?.time) return;
+      candleSeries.update(candle);
     };
 
     const handleResolutionRes = (data: any) => {
@@ -94,14 +130,14 @@ export default function CandleChart() {
       chartInstanceRef.current = null;
       candleSeriesRef.current  = null;
     };
-  }, [socket]);
+  }, [socket, resolution]);
 
   const handleResolution = (reso: '1m' | '5m' | '1h' | '1d') => {
     setResolution(reso);
     socket.emit('resolution', { resolution: reso });
   };
 
-  const resolutions = ['1m', '5m', '1h', '1d'] as const;
+  const resolutions: Resolution[] = ['1m', '5m', '1h', '1d'];
 
   return (
     // ✅ chart div is ALWAYS in the DOM so chartRef.current is never null
