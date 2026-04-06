@@ -43,9 +43,9 @@ export interface Order {
   quantity: number;
   filled: number; // Amount filled so far
   status: OrderStatusUI; // UI-friendly status
-  orderType: OrderType;
-  owner: string;
-  clientOrderId: string;
+  orderType?: OrderType;
+  owner?: string;
+  clientOrderId?: string;
   placedAt?: string; // Optional - you mentioned this exists
 }
 
@@ -61,18 +61,4 @@ export interface RawOrder {
   quantity: string; // Converted from u64
   clientOrderId: string; // Converted from u64
   orderStatus: OrderStatus; // 1,2,3,4
-}
-
-/**
- * Raw open orders account (matches your Rust OpenOrders struct)
- */
-export interface RawOpenOrders {
-  market: string; // Pubkey as string
-  owner: string; // Pubkey as string
-  baseFree: string; // u64 as string
-  baseLocked: string; // u64 as string
-  quoteFree: string; // u64 as string
-  quoteLocked: string; // u64 as string
-  orders: RawOrder[];
-  ordersCount: number;
 }

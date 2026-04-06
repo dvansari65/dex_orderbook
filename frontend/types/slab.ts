@@ -8,7 +8,6 @@ export interface Market {
   quoteVault: string;
   bids: string;
   asks: string;
-  eventQueue: string;
   baseLotSize: number;
   quoteLotSize: number;
   makerFeesBps: number;
@@ -38,44 +37,6 @@ export interface Node {
   orderId: string;
   next?: number;
   prev?: number;
-}
-
-// Event Queue
-export interface EventQueue {
-  tail: number;
-  header: number;
-  count: number;
-  events: Event[];
-}
-
-// Event (emitted)
-export interface Event {
-  orderId: number;
-  eventType: EventType;
-  price: number;
-  quantity: number;
-  maker: string;
-  taker: number;
-  timestamp: number;
-}
-
-export enum EventType {
-  NewOrder = 0,
-  Fill = 1,
-  Cancel = 2,
-  PartialFill = 3,
-}
-
-// Open Orders
-export interface OpenOrders {
-  market: string;
-  owner: string;
-  baseFree: number;
-  baseLocked: number;
-  quoteFree: number;
-  quoteLocked: number;
-  orders: Order[];
-  ordersCount: number;
 }
 
 export interface Order {

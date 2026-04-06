@@ -24,30 +24,6 @@ export const useGetBidsPda = (market: PublicKey) => {
     )
     return pda
 }
-
-export const useGetOpenOrderPda = (
-    market: string | undefined,
-    owner: PublicKey | null
-  ) => {
-    console.log("owner",owner)
-    if(!market){
-        return;
-    }
-    if(!owner){
-        return;
-    }
-    const marketPubkey = new PublicKey(market);
-    
-    const [pda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("open_order"),
-          marketPubkey.toBuffer(),  
-          owner.toBuffer(),   
-        ],
-        PROGRAM_ID
-      );
-    return pda
-  }
   
   export const useGetMarketAccount = () => {
     const { program } = useDexProgram();
