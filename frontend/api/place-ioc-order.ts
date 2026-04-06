@@ -1,7 +1,7 @@
 import { MARKET_PUBKEY,BASE_TOKEN_DECIMALS,QUOTE_TOKEN_DECIMALS } from "@/constants/market"
 import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
 import { useDexProgram } from "@/hooks/useDexProgram"
-import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
+import { useGetMarketAccount } from "@/services/blockchain"
 import { PlaceOrderInputs } from "@/types/slab"
 import { BN } from "@coral-xyz/anchor"
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token"
@@ -33,18 +33,11 @@ export const PlaceIOCOrder = () => {
           throw new Error("Please connect your wallet!")
         }
         
-        // Get open order PDA
-        const openOrderPda = useGetOpenOrderPda(MARKET_PUBKEY, publicKey)
-        
         // Create user's base and quote token accounts
         const { baseATA, quoteATA } = await createTokenAccounts.mutateAsync({
           baseMint: market.data?.baseMint,
           quoteMint: market.data?.quoteMint
         })
-
-        if (!openOrderPda) {
-          throw new Error("Open order not initialised!")
-        }
         
         // Convert quantities
         const convertedBaseLots = BASE_TOKEN_DECIMALS * maxBaseSize
@@ -68,12 +61,10 @@ export const PlaceIOCOrder = () => {
             market: MARKET_PUBKEY,
             asks: market.data?.asks,
             bids: market.data?.bids,
-            eventQueue: market.data?.eventQueue,
             quoteVault: market.data?.quoteVault,
             baseVault: market.data?.baseVault,
             userBaseVault: baseATA,
             userQuoteVault: quoteATA,
-            openOrder: openOrderPda,
             owner: publicKey,
             tokenProgram: TOKEN_PROGRAM_ID,
           })
