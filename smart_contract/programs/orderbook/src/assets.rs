@@ -51,23 +51,26 @@ pub fn transfer_from_vault<'info>(
 pub fn lock_bid_funds<'info>(
     market: &mut Market,
     owner: &Signer<'info>,
+    user_base_vault: &Account<'info, TokenAccount>,
     user_quote_vault: &Account<'info, TokenAccount>,
     quote_vault: &Account<'info, TokenAccount>,
     token_program: &Program<'info, Token>,
     quote_lots: u64,
     base_lots: u64,
 ) -> Result<u64> {
-    let amount_to_lock = quote_lots
+    let base_lot_size = market.base_lot_size;
+    let quote_lot_size = market.quote_lot_size;
+    let total_quote_lots = quote_lots
         .checked_mul(base_lots)
-        .ok_or(MarketError::MathOverflow)?
-        .checked_mul(market.quote_lot_size)
+        .ok_or(MarketError::MathOverflow)?;
+    let amount_to_lock = total_quote_lots
+        .checked_mul(quote_lot_size)
         .ok_or(MarketError::MathOverflow)?;
 
     require!(
         user_quote_vault.amount >= amount_to_lock,
-        MarketError::InsufficientBaseBalance
+        MarketError::InsufficientQuoteBalance
     );
-
     transfer_from_user(
         token_program,
         user_quote_vault,
@@ -75,11 +78,17 @@ pub fn lock_bid_funds<'info>(
         owner,
         amount_to_lock,
     )?;
-    let remaining_free = user_quote_vault.amount;
+
     let existing_entry = market.get_trader_entry(&owner.key());
     let updated_quote_balance = user_quote_vault
         .amount
         .checked_sub(amount_to_lock)
+        .ok_or(MarketError::UnderFlow)?
+        .checked_div(quote_lot_size)
+        .ok_or(MarketError::UnderFlow)?;
+    let current_base_lots = user_base_vault
+        .amount
+        .checked_div(base_lot_size)
         .ok_or(MarketError::UnderFlow)?;
 
     match existing_entry {
@@ -87,17 +96,19 @@ pub fn lock_bid_funds<'info>(
             entry.trader_state.quote_lots_locked = entry
                 .trader_state
                 .quote_lots_locked
-                .checked_add(amount_to_lock)
+                .checked_add(total_quote_lots)
                 .ok_or(MarketError::MathOverflow)?;
 
-            entry.trader_state.quote_lots_free = updated_quote_balance
+            entry.trader_state.quote_lots_free = updated_quote_balance;
+            entry.trader_state.base_lots_free = current_base_lots;
         }
         None => {
+            msg!("quote free:{}:", user_quote_vault.amount);
             let trader_state = TraderState {
-                base_lots_free: 0,
+                base_lots_free: current_base_lots,
                 base_lots_locked: 0,
-                quote_lots_locked: amount_to_lock,
-                quote_lots_free: remaining_free,
+                quote_lots_locked: total_quote_lots,
+                quote_lots_free: updated_quote_balance,
             };
             let trader_entry = TraderEntry {
                 trader_key: owner.key(),
@@ -118,9 +129,21 @@ pub fn lock_ask_funds<'info>(
     token_program: &Program<'info, Token>,
     base_lots: u64,
 ) -> Result<u64> {
+    msg!("=== lock_ask_funds ===");
+    msg!(
+        "base_lots={} base_lot_size={} vault_amount={}",
+        base_lots,
+        market.base_lot_size,
+        user_base_vault.amount
+    );
+
+    let base_lot_size = market.base_lot_size;
+
     let amount_to_lock = base_lots
-        .checked_mul(market.base_lot_size)
+        .checked_mul(base_lot_size)
         .ok_or(MarketError::MathOverflow)?;
+
+    msg!("amount_to_lock={}", amount_to_lock);
     require!(
         user_base_vault.amount >= amount_to_lock,
         MarketError::InsufficientBaseBalance
@@ -138,22 +161,26 @@ pub fn lock_ask_funds<'info>(
         .amount
         .checked_sub(amount_to_lock)
         .ok_or(MarketError::UnderFlow)?;
-
-    let remaining_base = user_base_vault.amount;
+    msg!("amount_to_update={}", amount_to_update);
+    let free_lots = amount_to_update
+        .checked_div(base_lot_size)
+        .ok_or(MarketError::UnderFlow)?;
+    msg!("free_lots={}", free_lots);
     match existing_entry {
         Some(entry) => {
             entry.trader_state.base_lots_locked = entry
                 .trader_state
                 .base_lots_locked
-                .checked_add(amount_to_lock)
+                .checked_add(base_lots)
                 .ok_or(MarketError::MathOverflow)?;
             // if you are not understanding these fields you should read phoenix orderbook crankerless design
-            entry.trader_state.base_lots_free = amount_to_update
+            entry.trader_state.base_lots_free = free_lots
         }
         None => {
+            msg!("base free:{}:", user_base_vault.amount);
             let trader_state = TraderState {
-                base_lots_free: remaining_base,
-                base_lots_locked: amount_to_lock,
+                base_lots_free: free_lots,
+                base_lots_locked: base_lots,
                 quote_lots_locked: 0,
                 quote_lots_free: 0,
             };
@@ -174,27 +201,32 @@ pub fn unlock_bid_funds<'info>(
     taker_qty: u64,
     user_quote_vault: &Account<'info, TokenAccount>,
 ) -> Result<u64> {
-    let amount_to_move = quote_lots
+    let quote_lots_to_move = quote_lots
         .checked_mul(taker_qty)
-        .ok_or(MarketError::MathOverflow)?
+        .ok_or(MarketError::MathOverflow)?;
+    let amount_to_move = quote_lots_to_move
         .checked_mul(market.quote_lot_size)
         .ok_or(MarketError::MathOverflow)?;
+
     require!(amount_to_move > 0, MarketError::InvalidPrice);
-    require!(user_quote_vault.amount >= amount_to_move,MarketError::InsufficientQuoteBalance);
+    require!(
+        user_quote_vault.amount >= amount_to_move,
+        MarketError::InsufficientQuoteBalance
+    );
     let existing_entry = market.get_trader_entry(owner);
-   
+
     match existing_entry {
         Some(entry) => {
             entry.trader_state.quote_lots_locked = entry
                 .trader_state
                 .quote_lots_locked
-                .checked_sub(amount_to_move)
+                .checked_sub(quote_lots_to_move)
                 .ok_or(MarketError::UnderFlow)?;
 
-            entry.trader_state.base_lots_free = entry
+            entry.trader_state.quote_lots_free = entry
                 .trader_state
-                .base_lots_free
-                .checked_add(amount_to_move)
+                .quote_lots_free
+                .checked_add(quote_lots_to_move)
                 .ok_or(MarketError::MathOverflow)?;
         }
         None => {
@@ -215,21 +247,24 @@ pub fn unlock_ask_funds<'info>(
         .ok_or(MarketError::MathOverflow)?;
 
     require!(amount_to_move > 0, MarketError::InvalidBaseQty);
-    require!(user_base_vault.amount >= amount_to_move,MarketError::InsufficientBaseBalance);
-    
+    require!(
+        user_base_vault.amount >= amount_to_move,
+        MarketError::InsufficientBaseBalance
+    );
+
     let existing_entry = market.get_trader_entry(owner);
     match existing_entry {
         Some(entry) => {
             entry.trader_state.base_lots_locked = entry
                 .trader_state
                 .base_lots_locked
-                .checked_sub(amount_to_move)
+                .checked_sub(taker_qty)
                 .ok_or(MarketError::UnderFlow)?;
 
             entry.trader_state.base_lots_free = entry
                 .trader_state
                 .base_lots_free
-                .checked_add(amount_to_move)
+                .checked_add(taker_qty)
                 .ok_or(MarketError::MathOverflow)?;
         }
         None => {
