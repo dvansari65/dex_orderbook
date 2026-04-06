@@ -1,14 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, memo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useSocket } from "@/providers/SocketProvider";
 import OrderBookRow from "./market/initial-snapshot";
-import { OrderFillEventData } from "@/types/events";
-import OrderbookSkeleton from "./ui/orderbook-skeleton";
-
-/* ============================== */
-/* ========= Types ============== */
-/* ============================== */
 
 interface PriceLevel {
   orderId: number;
@@ -30,12 +24,41 @@ interface OrderBookState {
   bids: Map<number, PriceLevel>;
 }
 
-interface OrdersById {
-  orders: Map<number, Order>;
-}
-
+type TxEvent =
+  | {
+      type: "orderPlacedEvent";
+      data: { id: number; p: number; q: number; s: "bid" | "ask"; ts?: number };
+    }
+  | {
+      type: "orderFillEvent";
+      data: {
+        makerOrderId: number;
+        takerOrderId: number;
+        price: number;
+        baseLotsFilled: number;
+        baseLotsRemaining: number;
+        timestamp?: number;
+        side: "bid" | "ask";
+      };
+    }
+  | {
+      type: "OrderCancelledEvent";
+      data: { id: number; p: number; q: number; s: "bid" | "ask"; ts?: number };
+    };
 
 const MemoizedRow = memo(OrderBookRow);
+
+const toNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toSide = (value: unknown): "bid" | "ask" => {
+  return value === "ask" ? "ask" : "bid";
+};
+
+const getBookSide = (book: OrderBookState, side: "bid" | "ask") =>
+  side === "ask" ? book.asks : book.bids;
 
 export default function Orderbook() {
   const socket = useSocket();
@@ -43,196 +66,219 @@ export default function Orderbook() {
     asks: new Map(),
     bids: new Map(),
   });
-  const bookRef = useRef<OrderBookState>({ asks: new Map(), bids: new Map() });
-  // ✅ ordersRef declared before updateOrders which depends on it
-  const ordersRef = useRef<Map<number, Order>>(new Map());
-  const pendingFills = useRef<Map<number, OrderFillEventData>>(new Map());
-  const updateOrders = (updater: (prev: Map<number, Order>) => Map<number, Order>) => {
-    const next = updater(ordersRef.current);
-    ordersRef.current = next;
-  };
 
+  const bookRef = useRef<OrderBookState>({ asks: new Map(), bids: new Map() });
+  const ordersRef = useRef<Map<number, Order>>(new Map());
   const batchTimer = useRef<NodeJS.Timeout | null>(null);
 
   const triggerUpdate = () => {
     if (batchTimer.current) return;
 
     batchTimer.current = setTimeout(() => {
-      // Functional update to ensure we use the latest ref values
       setDisplayData({
         asks: new Map(bookRef.current.asks),
         bids: new Map(bookRef.current.bids),
       });
       batchTimer.current = null;
-    }, 100);
+    }, 50);
+  };
+
+  const upsertPriceLevel = (
+    side: "bid" | "ask",
+    price: number,
+    deltaQty: number,
+    orderId: number
+  ) => {
+    const targetMap = getBookSide(bookRef.current, side);
+    const current = targetMap.get(price);
+    const nextQty = (current?.quantity ?? 0) + deltaQty;
+
+    if (nextQty <= 0) {
+      targetMap.delete(price);
+      return;
+    }
+
+    targetMap.set(price, {
+      orderId: current?.orderId ?? orderId,
+      price,
+      quantity: nextQty,
+      total: price * nextQty,
+    });
+  };
+
+  const removeOrderFromBook = (order: Order, quantityToRemove: number) => {
+    upsertPriceLevel(order.side, order.price, -quantityToRemove, order.orderId);
+  };
+
+  const applyMakerFill = (fill: Extract<TxEvent, { type: "orderFillEvent" }>["data"]) => {
+    const makerOrderId = toNumber(fill.makerOrderId);
+    const fillQty = toNumber(fill.baseLotsFilled);
+    const makerRemaining = toNumber(fill.baseLotsRemaining);
+    const executionPrice = toNumber(fill.price);
+    const takerSide = toSide(fill.side);
+    const makerSide = takerSide === "bid" ? "ask" : "bid";
+
+    const makerOrder = ordersRef.current.get(makerOrderId);
+
+    if (makerOrder) {
+      removeOrderFromBook(makerOrder, fillQty);
+
+      if (makerRemaining <= 0) {
+        ordersRef.current.delete(makerOrderId);
+      } else {
+        ordersRef.current.set(makerOrderId, {
+          ...makerOrder,
+          quantity: makerRemaining,
+          timestamp: toNumber(fill.timestamp),
+        });
+      }
+      return;
+    }
+
+    // Fallback: still reduce the displayed maker price level if the exact order
+    // isn't present in ordersRef (for example after a resync mismatch).
+    upsertPriceLevel(makerSide, executionPrice, -fillQty, makerOrderId);
+  };
+
+  const applyPlacedOrder = (
+    placed: Extract<TxEvent, { type: "orderPlacedEvent" }>["data"],
+    alreadyFilledQty: number
+  ) => {
+    const orderId = toNumber(placed.id);
+    const price = toNumber(placed.p);
+    const originalQty = toNumber(placed.q);
+    const side = toSide(placed.s);
+    const remainingQty = Math.max(0, originalQty - alreadyFilledQty);
+
+    if (remainingQty <= 0) {
+      ordersRef.current.delete(orderId);
+      return;
+    }
+
+    ordersRef.current.set(orderId, {
+      orderId,
+      price,
+      quantity: remainingQty,
+      side,
+      timestamp: toNumber(placed.ts),
+    });
+
+    upsertPriceLevel(side, price, remainingQty, orderId);
+  };
+
+  const applyCancelledOrder = (cancelled: Extract<TxEvent, { type: "OrderCancelledEvent" }>["data"]) => {
+    const orderId = toNumber(cancelled.id);
+    const existingOrder = ordersRef.current.get(orderId);
+
+    if (existingOrder) {
+      removeOrderFromBook(existingOrder, existingOrder.quantity);
+      ordersRef.current.delete(orderId);
+      return;
+    }
+
+    // Fallback if we only know the aggregated level from the event payload.
+    upsertPriceLevel(
+      toSide(cancelled.s),
+      toNumber(cancelled.p),
+      -toNumber(cancelled.q),
+      orderId
+    );
   };
 
   useEffect(() => {
     if (!socket) return;
 
-    socket.onAny((eventName, ...args) => {
-      console.log(`Incoming Event: ${eventName}`, args);
-    });
-
     const handleSnapshot = (payload: any) => {
-      console.log("asks:", payload);
       const asks = new Map<number, PriceLevel>();
       const bids = new Map<number, PriceLevel>();
       const orders = new Map<number, Order>();
 
-      payload.orderbook.asks.forEach((n: any) => {
-        const id = n.id;
-        const p = n.price;
-        const existing = asks.get(p);
-        if (existing) {
-          existing.quantity += n.quantity;
-          existing.total = p * existing.quantity;
-        } else {
-          asks.set(p, { orderId: id, price: p, quantity: n.quantity, total: p * n.quantity });
-        }
-        orders.set(id, { orderId: id, price: p, quantity: n.quantity, timestamp: n.ts, side: "ask" });
+      payload?.orderbook?.asks?.forEach((node: any) => {
+        const orderId = toNumber(node.orderId ?? node.id);
+        const price = toNumber(node.price);
+        const quantity = toNumber(node.quantity);
+        const current = asks.get(price);
+
+        asks.set(price, {
+          orderId: current?.orderId ?? orderId,
+          price,
+          quantity: (current?.quantity ?? 0) + quantity,
+          total: price * ((current?.quantity ?? 0) + quantity),
+        });
+
+        orders.set(orderId, {
+          orderId,
+          price,
+          quantity,
+          timestamp: toNumber(node.ts ?? node.timestamp),
+          side: "ask",
+        });
       });
 
-      payload.orderbook.bids.forEach((n: any) => {
-        const id = n.id;
-        const p = n.price;
-        const existing = bids.get(p);
-        if (existing) {
-          existing.quantity += n.quantity;
-          existing.total = p * existing.quantity;
-        } else {
-          bids.set(p, { orderId: id, price: p, quantity: n.quantity, total: p * n.quantity });
-        }
-        orders.set(id, { orderId: id, price: p, quantity: n.quantity, timestamp: n.ts, side: "bid" });
+      payload?.orderbook?.bids?.forEach((node: any) => {
+        const orderId = toNumber(node.orderId ?? node.id);
+        const price = toNumber(node.price);
+        const quantity = toNumber(node.quantity);
+        const current = bids.get(price);
+
+        bids.set(price, {
+          orderId: current?.orderId ?? orderId,
+          price,
+          quantity: (current?.quantity ?? 0) + quantity,
+          total: price * ((current?.quantity ?? 0) + quantity),
+        });
+
+        orders.set(orderId, {
+          orderId,
+          price,
+          quantity,
+          timestamp: toNumber(node.ts ?? node.timestamp),
+          side: "bid",
+        });
       });
 
       bookRef.current = { asks, bids };
-      // ✅ seeds ordersRef so fill events can find orders
-      updateOrders(() => orders);
+      ordersRef.current = orders;
       triggerUpdate();
     };
 
-    const handleOrderPlaced = (data: any) => {
-      console.log("order place event triggere:", data)
-      const id = Number(data.id);
-      const p = Number(data.p);
-      const q = Number(data.q);
-      const s: "bid" | "ask" = data.s;
+    const handleTxEvents = (events: TxEvent[]) => {
+      if (!Array.isArray(events) || events.length === 0) return;
 
-      ordersRef.current.set(id, { orderId: id, price: p, quantity: q, timestamp: data.ts, side: s });
-      const targetMap = s === "ask" ? bookRef.current.asks : bookRef.current.bids;
+      const takerFilledByOrderId = new Map<number, number>();
 
-      const priceLevel = targetMap.get(p);
-      if (priceLevel) {
-        targetMap.set(p, {
-          ...priceLevel,
-          quantity: priceLevel.quantity + q,
-          total: (priceLevel.quantity + q) * p,
-        });
-      } else {
-        targetMap.set(p, { orderId: id, price: p, quantity: q, total: p * q });
+      for (const event of events) {
+        if (event.type !== "orderFillEvent") continue;
+
+        const takerOrderId = toNumber(event.data.takerOrderId);
+        const fillQty = toNumber(event.data.baseLotsFilled);
+        takerFilledByOrderId.set(
+          takerOrderId,
+          (takerFilledByOrderId.get(takerOrderId) ?? 0) + fillQty
+        );
       }
-      if (pendingFills.current.has(id)) {
-        const bufferedFill = pendingFills.current.get(id)!;
-        pendingFills.current.delete(id);
-        handleOrderFillEvent(bufferedFill);  // now safe to process
-      }
-      triggerUpdate();
-    };
 
-    const handleOrderCancelled = (data: any) => {
-      const id = Number(data.id);
-      const p = Number(data.p);
-      const q = Number(data.q);
-      const s: "bid" | "ask" = data.s;
-
-      const targetMap = s === "ask" ? bookRef.current.asks : bookRef.current.bids;
-
-      const priceLevel = targetMap.get(p);
-      if (priceLevel) {
-        const newQty = priceLevel.quantity - q;
-        if (newQty <= 0) {
-          targetMap.delete(p);
-        } else {
-          targetMap.set(p, {
-            ...priceLevel,
-            quantity: newQty,
-            total: p * newQty,
-          });
+      // First update makers already resting on the book.
+      for (const event of events) {
+        if (event.type === "orderFillEvent") {
+          applyMakerFill(event.data);
         }
       }
 
-      // ✅ Direct ref mutation
-      ordersRef.current.delete(id);
-
-      triggerUpdate();
-    };
-    const handleOrderFillEvent = (data: any) => {
-      console.log("fill evet triggered!")
-      console.log("fill event data:", data);
-      const {
-        makerOrderId,
-        takerOrderId,
-        price,
-        baseLotsFilled,
-        baseLotsRemaining,
-        timestamp,
-        side,
-      } = data;
-
-      const makerSlab = side === "bid" ? bookRef.current.asks : bookRef.current.bids;
-      const takerSlab = side === "bid" ? bookRef.current.bids : bookRef.current.asks;
-
-      const takerOrder = ordersRef.current.get(Number(takerOrderId));
-
-      // if taker not in ordersRef yet, order:placed hasn't arrived — buffer and wait
-      if (!takerOrder) {
-        console.warn("[fill] taker not found, buffering fill for takerOrderId:", takerOrderId);
-        pendingFills.current.set(Number(takerOrderId), data);
-        return;
-      }
-
-      // rest of your logic untouched below
-      const makerOrder = ordersRef.current.get(Number(makerOrderId));
-      if (makerOrder) {
-        if (baseLotsRemaining === 0) {
-          ordersRef.current.delete(Number(makerOrderId));
-        } else {
-          ordersRef.current.set(Number(makerOrderId), { ...makerOrder, quantity: baseLotsRemaining, timestamp });
-        }
-      }
-      if (takerOrder) {
-        const takerRemainingQty = takerOrder.quantity - baseLotsFilled;
-        if (takerRemainingQty <= 0) {
-          ordersRef.current.delete(Number(takerOrderId));
-        } else {
-          ordersRef.current.set(Number(takerOrderId), { ...takerOrder, quantity: takerRemainingQty, timestamp });
+      // Then apply placements using net remaining quantity.
+      for (const event of events) {
+        if (event.type === "orderPlacedEvent") {
+          applyPlacedOrder(
+            event.data,
+            takerFilledByOrderId.get(toNumber(event.data.id)) ?? 0
+          );
         }
       }
 
-      const makerPriceLevel = makerSlab.get(price);
-      if (makerPriceLevel) {
-        const newMakerQty = makerPriceLevel.quantity - baseLotsFilled;
-        if (newMakerQty <= 0) {
-          makerSlab.delete(price);
-        } else {
-          makerSlab.set(price, { ...makerPriceLevel, quantity: newMakerQty, total: price * newMakerQty });
-        }
-      } else {
-        console.warn("[fill] maker price level not found at price:", price);
-      }
-
-      if (takerOrder) {
-        const takerLevel = takerSlab.get(takerOrder.price);
-        if (takerLevel) {
-          const newTakerQty = takerLevel.quantity - baseLotsFilled;
-          if (newTakerQty <= 0) {
-            takerSlab.delete(takerOrder.price);
-          } else {
-            takerSlab.set(takerOrder.price, { ...takerLevel, quantity: newTakerQty, total: takerOrder.price * newTakerQty });
-          }
-        } else {
-          console.warn("[fill] taker price level not found at price:", takerOrder.price);
+      // Finally apply explicit cancels.
+      for (const event of events) {
+        if (event.type === "OrderCancelledEvent") {
+          applyCancelledOrder(event.data);
         }
       }
 
@@ -240,17 +286,11 @@ export default function Orderbook() {
     };
 
     socket.on("snapshot", handleSnapshot);
-    socket.on("tx:events", (events: any[]) => {
-      for (const event of events) {
-        if (event.type === "orderPlacedEvent") handleOrderPlaced(event.data);
-        if (event.type === "orderFillEvent") handleOrderFillEvent(event.data);
-        if (event.type === "OrderCancelledEvent") handleOrderCancelled(event.data);
-      }
-    });
+    socket.on("tx:events", handleTxEvents);
 
     return () => {
       socket.off("snapshot", handleSnapshot);
-      socket.off("tx:events");
+      socket.off("tx:events", handleTxEvents);
       if (batchTimer.current) clearTimeout(batchTimer.current);
     };
   }, [socket]);
@@ -308,8 +348,3 @@ export default function Orderbook() {
     </div>
   );
 }
-
-// 100.99
-// 100.990000
-// 100990000
-// 100990
