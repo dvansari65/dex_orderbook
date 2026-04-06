@@ -69,6 +69,18 @@
         {
           "name": "owner",
           "signer": true
+        },
+        {
+          "name": "user_base_vault",
+          "writable": true
+        },
+        {
+          "name": "user_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
