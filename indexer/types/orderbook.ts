@@ -75,6 +75,18 @@ export type Orderbook = {
         {
           "name": "owner",
           "signer": true
+        },
+        {
+          "name": "userBaseVault",
+          "writable": true
+        },
+        {
+          "name": "userQuoteVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -730,33 +742,8 @@ export type Orderbook = {
   "errors": [
     {
       "code": 6000,
-      "name": "orderNotFound",
-      "msg": "Order not found in the Slab!"
-    },
-    {
-      "code": 6001,
-      "name": "invalidQty",
-      "msg": "Invalid quantity!"
-    },
-    {
-      "code": 6002,
-      "name": "invalidPrice",
-      "msg": "Invalid price!"
-    },
-    {
-      "code": 6003,
-      "name": "duplicateOrderId",
-      "msg": "Duplicate order id!"
-    },
-    {
-      "code": 6004,
-      "name": "invalidIndex",
-      "msg": "Invalid inserting index!"
-    },
-    {
-      "code": 6005,
-      "name": "underFlow",
-      "msg": "Quantity underflow!"
+      "name": "entryNotFound",
+      "msg": "Trader entry not found!"
     }
   ],
   "types": [
