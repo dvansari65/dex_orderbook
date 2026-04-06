@@ -19,7 +19,7 @@ const NODE_ENV     = process.env.NODE_ENV || "development";
 const IS_PROD      = NODE_ENV === "production";
 const DATABASE_URL = resolveDatabaseUrl();
 
-const RPC_URL      = process.env.LOCAL_URL || process.env.RPC_URL 
+const RPC_URL      = process.env.RPC_URL || process.env.LOCAL_URL
 const PROGRAM_ID   = process.env.PROGRAM_ID   || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
 const PORT         = process.env.PORT         || 3002;
