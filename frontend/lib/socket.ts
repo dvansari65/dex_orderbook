@@ -1,10 +1,14 @@
 import io, { Socket } from "socket.io-client";
+import { SOCKET_URL } from "./env";
 
 let socket: Socket | null = null;
 
 export const getSocket = (): Socket => {
   if (!socket) {
-    socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001");
+    socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+    });
   }
   return socket;
 };
