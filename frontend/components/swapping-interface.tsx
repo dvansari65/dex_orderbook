@@ -7,11 +7,9 @@ import { Wallet, TrendingUp, TrendingDown } from 'lucide-react'
 import { OrderType, PlaceOrderInputs, Side } from '@/types/slab';
 import { toast } from 'sonner';
 import { orderIdGenerator } from '@/lib/IdGenerator';
-import { OpenOrderModal } from './open-order/Initialise-open-order';
 import { PlaceOrder } from '@/api/place-order';
 import { PlacePostOnlyOrder } from '@/api/place-post-only-order';
 import { PlaceIOCOrder } from '@/api/place-ioc-order';
-import { useQueryClient } from '@tanstack/react-query';
 
 function SwappingInterface() {
   const { connected, publicKey, signTransaction } = useWallet()
@@ -21,8 +19,6 @@ function SwappingInterface() {
   const [side, setSide] = useState<Side>({ bid: {} })
   const [price, setPrice] = useState(0)
   const [size, setSize] = useState(0)
-  const [showOpenOrderModal, setShowOpenOrderModal] = useState(false)
-  const queryClient = useQueryClient()
   const total = price && size ? (price * size).toFixed(6) : '0.00'
 
   const limitMutation = PlaceOrder()
@@ -41,18 +37,6 @@ function SwappingInterface() {
     setSize(0)
     setOrderType({ limit: {} })
     setSide({ bid: {} })
-  }
-
-  const handleOpenOrderError = (error: Error) => {
-    if (
-      error.message.includes("Open order not initialised!") ||
-      (error.message.includes("account: open_order") && error.message.includes("Error Code: AccountNotInitialized"))
-    ) {
-      setShowOpenOrderModal(true)
-      toast.error("Please initialize your open order account first")
-    } else {
-      toast.error(error.message)
-    }
   }
 
   const handlePlaceOrder = async () => {
@@ -77,11 +61,10 @@ function SwappingInterface() {
       onSuccess: (data: unknown) => {
         toast.success("Order placed successfully!")
         resetForm()
-        queryClient.invalidateQueries({queryKey:["open_order",publicKey]})
       },
       onError: (error: Error) => {
         resetForm()
-        handleOpenOrderError(error)
+        toast.error(error.message)
       },
     }
 
@@ -243,14 +226,6 @@ function SwappingInterface() {
             </span>
           </div>
         </div>
-      )}
-
-      {/* Open Order Modal */}
-      {showOpenOrderModal && (
-        <OpenOrderModal
-          isOpen={showOpenOrderModal}
-          onClose={() => setShowOpenOrderModal(false)}
-        />
       )}
     </div>
   )
