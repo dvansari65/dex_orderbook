@@ -1,12 +1,13 @@
 import { MARKET_PUBKEY, QUOTE_TOKEN_DECIMALS, BASE_TOKEN_DECIMALS } from "@/constants/market"
 import { useCreateUserTokenAccounts } from "@/hooks/useCreateTokenAccounts"
 import { useDexProgram } from "@/hooks/useDexProgram"
-import { useGetMarketAccount, useGetOpenOrderPda } from "@/services/blockchain"
+import { useGetMarketAccount } from "@/services/blockchain"
 import { PlaceOrderInputs } from "@/types/slab"
 import { BN } from "@coral-xyz/anchor"
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { useMutation } from "@tanstack/react-query"
+
 // place limit order 
 export const PlaceOrder = () => {
   const { program } = useDexProgram()
@@ -31,20 +32,15 @@ export const PlaceOrder = () => {
         if(!publicKey){
           throw new Error("Please connect you wallet!")
         }
-        // getting open order pda
-        const openOrderPda = useGetOpenOrderPda(MARKET_PUBKEY,publicKey)
         // creating user's base associated token account and quote associated token account
         const {baseATA,quoteATA} = await createTokenAccounts.mutateAsync({
           baseMint:market.data?.baseMint,
           quoteMint:market?.data?.quoteMint
         });
-
-        if(!openOrderPda){
-          throw new Error("Open order not initialised!")
-        }
         
         const convertedBaseLots = BASE_TOKEN_DECIMALS * maxBaseSize;
-        const convertedQuotePrice = QUOTE_TOKEN_DECIMALS * price
+        const convertedQuotePrice = QUOTE_TOKEN_DECIMALS * price;
+        
         if(!program){
           console.log("Program not found!")
           return;
@@ -64,10 +60,9 @@ export const PlaceOrder = () => {
             bids: market.data?.bids,
             quoteVault: market?.data?.quoteVault,
             baseVault: market?.data?.baseVault,
-            eventQueue: market.data?.eventQueue,
             userBaseVault: baseATA, // Use the ensured account
             userQuoteVault: quoteATA, // Use the ensured account
-            openOrder: openOrderPda,
+            owner: publicKey,
             tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc()
