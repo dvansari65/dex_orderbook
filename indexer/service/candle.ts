@@ -4,10 +4,16 @@ import prisma from "../lib/prisma"
 import { CandleSnapshot } from "../types/service";
 import {formatTimeForResolution} from "../helper/formatTimeForReso"
 import {updateOrdersOnFill} from "../helper/updateOrderOnFill"
+import { isDatabaseConnectivityError } from "../lib/env";
+
+const PRICE_DISPLAY_DIVISOR = 1_000;
+const VOLUME_DISPLAY_DIVISOR = 1_000;
+const RESOLUTIONS = ["1m", "5m", "1h", "1d"] as const;
+
 // Define return type with volume
 interface FillEventResult {
-  candle: CandleSnapshot;
-  volume: number;  // Current volume after this trade
+  candles: Partial<Record<(typeof RESOLUTIONS)[number], CandleSnapshot>>;
+  volumes: Partial<Record<(typeof RESOLUTIONS)[number], number>>;
   timestamp: string; // ISO string for time
 }
 export const handleFillEvent = async (
@@ -45,10 +51,11 @@ export const handleFillEvent = async (
     // updating order
     await updateOrdersOnFill(makerOrderId,takerOrderId,baseLotsFilled?.toNumber())
 
-    const resolutions = ['1m', '5m', '1h', '1d'];
     let result: FillEventResult | undefined;
+    const candlesByResolution: FillEventResult["candles"] = {};
+    const volumesByResolution: FillEventResult["volumes"] = {};
 
-    for (const resolution of resolutions) {
+    for (const resolution of RESOLUTIONS) {
       const bucketStart = getBucketStart(tradeDate, resolution);
       
       const existingCandle = await prisma.candle.findUnique({
@@ -102,24 +109,29 @@ export const handleFillEvent = async (
         });
       }
       console.log("created candle:",candle)
-      // Return only 1m candle for real-time updates
-      if (resolution === '1m') {
-        result = {
-          candle: {
-            high: Number(candle.high)/1000,
-            low: Number(candle.low)/1000,
-            open: Number(candle.open)/1000,
-            close: Number(candle.close)/1000,
-            time: formatTimeForResolution(candle.timestamp, resolution),
-          },
-          volume: newVolume/1000,  // Current total volume for this time bucket
-          timestamp: candle.timestamp.toISOString()
-        };
-      }
+      candlesByResolution[resolution] = {
+        high: Number(candle.high) / PRICE_DISPLAY_DIVISOR,
+        low: Number(candle.low) / PRICE_DISPLAY_DIVISOR,
+        open: Number(candle.open) / PRICE_DISPLAY_DIVISOR,
+        close: Number(candle.close) / PRICE_DISPLAY_DIVISOR,
+        time: formatTimeForResolution(candle.timestamp, resolution),
+      };
+      volumesByResolution[resolution] = newVolume / VOLUME_DISPLAY_DIVISOR;
     }
+
+    result = {
+      candles: candlesByResolution,
+      volumes: volumesByResolution,
+      timestamp: tradeDate.toISOString(),
+    };
 
     return result;
   } catch (error) {
+    if (isDatabaseConnectivityError(error)) {
+      const prismaError = error as { code?: string; message?: string };
+      console.error(`Database unavailable while handling fill event (${prismaError.code}): ${prismaError.message}`);
+      return undefined;
+    }
     console.error("Error handling fill event:", error);
     return undefined;
   }
@@ -130,7 +142,7 @@ export const snapshotOfCandle = async (
   marketPubKey: string
 ): Promise<{
   candles: CandleSnapshot[],
-  volumeData: { time: string, value: number }[]
+  volumeData: { time: string | number, value: number }[]
 }> => {
   try {
     if( typeof marketPubKey !== "string" || !marketPubKey || !resolution){
@@ -151,18 +163,23 @@ export const snapshotOfCandle = async (
 
     return {
       candles: candles.map(c => ({
-        time: c.timestamp.toISOString().split("T")[0],
-        open: Number(c.open),
-        high: Number(c.high),
-        low: Number(c.low),
-        close: Number(c.close),
+        time: formatTimeForResolution(c.timestamp, resolution),
+        open: Number(c.open) / PRICE_DISPLAY_DIVISOR,
+        high: Number(c.high) / PRICE_DISPLAY_DIVISOR,
+        low: Number(c.low) / PRICE_DISPLAY_DIVISOR,
+        close: Number(c.close) / PRICE_DISPLAY_DIVISOR,
       })),
       volumeData: candles.map(c => ({
-        time: c.timestamp.toISOString().split("T")[0],
-        value: Number(c.volume) / 1000  // Adjust divisor as needed
+        time: formatTimeForResolution(c.timestamp, resolution),
+        value: Number(c.volume) / VOLUME_DISPLAY_DIVISOR
       }))
     };
   } catch (error) {
+    if (isDatabaseConnectivityError(error)) {
+      const prismaError = error as { code?: string; message?: string };
+      console.error(`Database unavailable while fetching candle snapshot (${prismaError.code}): ${prismaError.message}`);
+      return { candles: [], volumeData: [] };
+    }
     console.error("Error fetching candle snapshot:", error);
     return { candles: [], volumeData: [] };
   }
