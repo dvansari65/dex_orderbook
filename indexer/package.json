@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "scripts": {
     "start": "ts-node src/api.ts",
-    "dev": "ts-node src/index.ts",
+    "dev": "ts-node src/api.ts",
     "build": "tsc",
     "seed": "tsx scripts/seedCandles.ts"
   },
