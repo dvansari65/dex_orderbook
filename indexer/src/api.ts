@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { Server, Socket } from "socket.io";
-import dotenv from "dotenv";
 import { EventListener } from "./listener";
 import { Conversion } from "./utils/conversion";
 import { Market } from "../types/market";
@@ -10,15 +9,17 @@ import { snapshotOfCandle, handleFillEvent } from "../service/candle";
 import { getOrderHistory } from "../service/orderHistory";
 import { createOrder } from "../service/orderHistory";
 import parseOrderFillEvent from "../helper/parseOrderFillEventData";
+import { loadIndexerEnv, resolveDatabaseUrl } from "../lib/env";
 
-dotenv.config();
+loadIndexerEnv();
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const NODE_ENV     = process.env.NODE_ENV || "development";
 const IS_PROD      = NODE_ENV === "production";
+const DATABASE_URL = resolveDatabaseUrl();
 
-const RPC_URL      = process.env.RPC_URL      || "http://127.0.0.1:8899";
+const RPC_URL      = process.env.LOCAL_URL || process.env.RPC_URL 
 const PROGRAM_ID   = process.env.PROGRAM_ID   || "";
 const MARKET_PUBKEY = process.env.MARKET_PUBKEY || "";
 const PORT         = process.env.PORT         || 3002;
@@ -28,13 +29,14 @@ if (!PROGRAM_ID || !MARKET_PUBKEY) {
     console.error("❌ PROGRAM_ID and MARKET_PUBKEY must be set in .env");
     process.exit(1);
   } else {
-    console.warn("⚠️  PROGRAM_ID or MARKET_PUBKEY not set — running in local dev mode");
+    console.warn("⚠️PROGRAM_ID or MARKET_PUBKEY not set — running in local dev mode");
   }
 }
 
 console.log(`🌍 Environment: ${NODE_ENV}`);
 console.log(`📡 RPC:         ${RPC_URL}`);
 console.log(`🎯 Market:      ${MARKET_PUBKEY || "not set"}`);
+console.log(`🗄️ Database:    ${new URL(DATABASE_URL).host}`);
 
 // ─── App Setup ────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,7 @@ const io = new Server(server, {
 
 // ─── Global State ─────────────────────────────────────────────────────────────
 
-const listener              = new EventListener(RPC_URL, PROGRAM_ID);
+const listener              = new EventListener(RPC_URL || "", PROGRAM_ID);
 let eventCleanup: (() => Promise<void>) | null = null;
 const activeConnections     = new Map<string, Socket>();
 
@@ -143,8 +145,8 @@ const startEventListener = async (marketState: Market) => {
             continue;
           }
           io.emit("candle:filled", {
-            candle:    fillResult.candle,
-            volume:    fillResult.volume,
+            candles:   fillResult.candles,
+            volumes:   fillResult.volumes,
             timestamp: fillResult.timestamp,
           });
         }
