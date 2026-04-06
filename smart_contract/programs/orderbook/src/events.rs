@@ -1,9 +1,9 @@
-use anchor_lang::prelude::*;
 use crate::{
     error::MarketError,
-    state::{EventQueue, EventType, FillRecord, Market, QueueEvent},
+    state::{EventType, FillRecord, Market},
     states::order_schema::enums::Side,
 };
+use anchor_lang::prelude::*;
 
 // ─────────────────────────────────────────────────────────────
 // #[event] structs — indexer listens to these via Anchor logs.
@@ -130,7 +130,7 @@ pub struct EventParams {
     // Fill-specific — populate from FillRecord, zero otherwise
     pub maker_order_id: u64,
     pub maker_remaining_qty: u64,
-    pub taker_remaining_qty: u64
+    pub taker_remaining_qty: u64,
 }
 
 impl EventParams {
@@ -158,7 +158,7 @@ impl EventParams {
             market_pubkey,
             maker_order_id: 0,
             maker_remaining_qty: 0,
-            taker_remaining_qty:0
+            taker_remaining_qty: 0,
         }
     }
 }
@@ -174,17 +174,13 @@ impl EventParams {
 //   2. Rich #[event] emitted          — fast path (Anchor logs / websocket)
 //   3. QueueEvent inserted            — durable on-chain ring buffer
 // ─────────────────────────────────────────────────────────────
-pub fn dispatch_event(
-    market: &mut Market,
-    event_queue: &mut EventQueue,
-    params: EventParams,
-) -> Result<()> {
+pub fn dispatch_event(market: &mut Market, params: EventParams) -> Result<()> {
     // 1. Increment global sequence
     let seq = market
         .global_seq
         .checked_add(1)
         .ok_or(MarketError::SeqOverflow)?;
-    
+
     market.global_seq = seq;
 
     let clock = Clock::get()?;
@@ -292,31 +288,6 @@ pub fn dispatch_event(
             // Needs last_valid_slot + last_valid_unix_timestamp_in_seconds.
         }
     }
-
-    let is_valid_event = 
-                            params.event_type == EventType::Cancel || 
-                            params.event_type == EventType::PartialFill || 
-                            params.event_type == EventType::Fill ;
-
-    if is_valid_event {
-        let event = QueueEvent {
-            global_seq: seq,
-            maker_order_id: params.maker_order_id,
-            event_type: params.event_type,
-            order_id: params.order_id,
-            owner: params.owner,
-            counterparty: params.counterparty,
-            side: params.side,
-            price: params.price,
-            base_quantity: params.base_quantity,
-            client_order_id: params.client_order_id,
-            timestamp: clock.unix_timestamp,
-            market_pubkey: params.market_pubkey,
-            maker_remaining_qty:params.maker_remaining_qty,
-            taker_remaining_qty:params.taker_remaining_qty
-        };
-        event_queue.insert_event(event)?;
-    }
     Ok(())
 }
 
@@ -329,7 +300,6 @@ pub fn dispatch_event(
 // ─────────────────────────────────────────────────────────────
 pub fn dispatch_fill_event(
     market: &mut Market,
-    event_queue: &mut EventQueue,
     fill: &FillRecord,
     taker_order_id: u64,
     taker_owner: Pubkey,
@@ -339,7 +309,6 @@ pub fn dispatch_fill_event(
 ) -> Result<()> {
     dispatch_event(
         market,
-        event_queue,
         EventParams {
             event_type: if fill.maker_fully_filled {
                 EventType::Fill
@@ -356,7 +325,7 @@ pub fn dispatch_fill_event(
             market_pubkey,
             maker_order_id: fill.maker_order_id,
             maker_remaining_qty: fill.maker_remaining_qty,
-            taker_remaining_qty:0
+            taker_remaining_qty: 0,
         },
     )
 }
