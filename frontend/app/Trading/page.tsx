@@ -9,6 +9,7 @@ import { useSocket } from "@/providers/SocketProvider";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Order } from "@/types/order";
 import TabbedOrderHistory from "@/components/tabbed-order-history";
+import TradingNavbar from "@/components/trading-navbar";
 
 interface RecentTrade {
   price: number
@@ -79,36 +80,37 @@ const Trading = memo(() => {
   }, [socket, publicKey?.toString()])
 
   return (
-    <div className="w-full h-screen flex flex-col lg:flex-row lg:overflow-hidden bg-[var(--phoenix-bg-subtle)] p-2 gap-2">
+    <div className="flex h-screen w-full flex-col bg-[var(--phoenix-bg-subtle)]">
+      <TradingNavbar />
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row lg:overflow-hidden">
+        {/* ── LEFT: Chart + Tabbed Order History ── */}
+        <div className="flex h-full min-w-0 flex-1 flex-col gap-2">
 
-      {/* ── LEFT: Chart + Tabbed Order History ── */}
-      <div className="flex flex-col flex-1 gap-2 min-w-0 h-full">
+          {/* Chart */}
+          <div className="overflow-hidden rounded-2xl bg-[var(--phoenix-bg-main)]" style={{ flex: '0 0 50%' }}>
+            <CandleChart />
+          </div>
 
-        {/* Chart */}
-        <div className="rounded-2xl overflow-hidden bg-[#FAF8F6]" style={{ flex: '0 0 50%' }}>
-          <CandleChart />
+          {/* Tabbed Order History */}
+          <div className="min-h-0" style={{ flex: '0 0 calc(50% - 4px)' }}>
+            <TabbedOrderHistory orders={orders} recentTrades={recentTrades} onRefresh={fetchOrders} />
+          </div>
+
         </div>
 
-        {/* Tabbed Order History */}
-        <div className="min-h-0" style={{ flex: '0 0 calc(50% - 4px)' }}>
-          <TabbedOrderHistory orders={orders} recentTrades={recentTrades} onRefresh={fetchOrders} />
-        </div>
+        {/* ── MIDDLE: Orderbook + Recent Trades ── */}
+        <div className="flex h-full w-full flex-col gap-2 lg:w-80">
 
-      </div>
+          {/* Orderbook */}
+          <div className="overflow-hidden rounded-2xl" style={{ flex: '0 0 60%' }}>
+            <Orderbook />
+          </div>
 
-      {/* ── MIDDLE: Orderbook + Recent Trades ── */}
-      <div className="w-full lg:w-80 flex flex-col gap-2 h-full">
-
-        {/* Orderbook */}
-        <div className="rounded-2xl overflow-hidden" style={{ flex: '0 0 60%' }}>
-          <Orderbook />
-        </div>
-
-        {/* Recent Trades */}
-        <div
-          className="rounded-2xl overflow-hidden flex flex-col bg-[#FAF8F6]"
-          style={{ flex: '0 0 calc(40% - 4px)' }}
-        >
+          {/* Recent Trades */}
+          <div
+            className="flex flex-col overflow-hidden rounded-2xl bg-[var(--phoenix-bg-main)]"
+            style={{ flex: '0 0 calc(40% - 4px)' }}
+          >
           {/* Header — mirrors orderbook header exactly */}
           <div className="px-3 py-2">
             <span className="text-xs font-semibold text-[var(--phoenix-text-primary)]">
@@ -156,17 +158,17 @@ const Trading = memo(() => {
               </div>
             ))}
           </div>
+          </div>
+
         </div>
 
-      </div>
-
-      {/* ── RIGHT: Swap ── */}
-      <div className="w-full lg:w-96 flex justify-center lg:justify-start h-full overflow-y-auto">
-        <div className="w-full max-w-md">
-          <SwappingInterface />
+        {/* ── RIGHT: Swap ── */}
+        <div className="flex h-full w-full justify-center overflow-y-auto lg:w-96 lg:justify-start">
+          <div className="w-full max-w-md">
+            <SwappingInterface />
+          </div>
         </div>
       </div>
-
     </div>
   );
 });

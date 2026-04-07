@@ -10,14 +10,15 @@ import {
 } from "@solana/wallet-adapter-wallets";
 import React, { useMemo } from "react";
 import "@solana/wallet-adapter-react-ui/styles.css";
+import { useNetworkConfig } from "./NetworkProvider";
 
 interface WalletProviderProps {
   children: React.ReactNode;
 }
 
 function SolanaWalletProvider({ children }: WalletProviderProps) {
-
-  const endpoint = useMemo(() => "http://127.0.0.1:8899", []);
+  const { rpcUrl } = useNetworkConfig();
+  const endpoint = useMemo(() => rpcUrl, [rpcUrl]);
   
   const wallets = useMemo(
     () => [

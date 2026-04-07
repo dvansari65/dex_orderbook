@@ -18,6 +18,10 @@
   --phoenix-accent:       #FF7A2F;
   --phoenix-accent-hover: #FF8F52;
   --phoenix-accent-soft:  rgba(255, 122, 47, 0.15);
+  --phoenix-bid:          #2B8A3E;
+  --phoenix-bid-soft:     rgba(43, 138, 62, 0.10);
+  --phoenix-ask:          #E03131;
+  --phoenix-ask-soft:     rgba(224, 49, 49, 0.10);
   /* ===== SHADOWS ===== */
   --phoenix-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.04);
   --phoenix-shadow-md: 0 8px 30px rgba(0, 0, 0, 0.06);
@@ -106,10 +110,10 @@
 }
 
 /* ── Trade side colors ────────────────────────────── */
-.text-bid  { color: #2B8A3E; }
-.text-ask  { color: #E03131; }
-.bg-bid    { background: rgba(43,  138, 62,  0.10); }
-.bg-ask    { background: rgba(224, 49,  49,  0.10); }
+.text-bid  { color: var(--phoenix-bid); }
+.text-ask  { color: var(--phoenix-ask); }
+.bg-bid    { background: var(--phoenix-bid-soft); }
+.bg-ask    { background: var(--phoenix-ask-soft); }
 
 
 body {

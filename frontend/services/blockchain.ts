@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js"
 import { useQuery } from "@tanstack/react-query"
 import {Orderbook} from "../types/orderbook"
 import { IdlAccounts } from "@coral-xyz/anchor"
-import { MARKET_PUBKEY } from "@/constants/market"
+import { useNetworkConfig } from "@/providers/NetworkProvider"
 
 type Market = IdlAccounts<Orderbook>["market"]
 
@@ -25,23 +25,22 @@ export const useGetBidsPda = (market: PublicKey) => {
     return pda
 }
   
-  export const useGetMarketAccount = () => {
+export const useGetMarketAccount = () => {
     const { program } = useDexProgram();
+    const { marketPubkey, network, rpcUrl } = useNetworkConfig();
   
     return useQuery<Market>({
-      queryKey: ["market"],
+      queryKey: ["market", network, rpcUrl, marketPubkey],
       queryFn: async () => {
         try {
-          if (!MARKET_PUBKEY) {
+          if (!marketPubkey) {
             throw new Error("Market pubkey is not provided!");
           }
-          console.log("market pub:",MARKET_PUBKEY.toString())
           if (!program) {
             throw new Error("Program is not initialized!");
           }
-    
           console.log("Fetching market...");
-          const market = await program.account.market.fetch(new PublicKey(MARKET_PUBKEY));
+          const market = await program.account.market.fetch(new PublicKey(marketPubkey));
           console.log("Market fetched:", market);
           return market;
         } catch (error) {
@@ -49,9 +48,9 @@ export const useGetBidsPda = (market: PublicKey) => {
           throw error;
         }
       },
-      enabled: !!MARKET_PUBKEY && !!program,
+      enabled: !!marketPubkey && !!program,
     });
-  };
+};
 
 export const useGetVaultSignerPda = (market: PublicKey) => {
     const [pda] = PublicKey.findProgramAddressSync(
