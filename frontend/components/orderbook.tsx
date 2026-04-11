@@ -135,8 +135,6 @@ export default function Orderbook() {
       return;
     }
 
-    // Fallback: still reduce the displayed maker price level if the exact order
-    // isn't present in ordersRef (for example after a resync mismatch).
     upsertPriceLevel(makerSide, executionPrice, -fillQty, makerOrderId);
   };
 
@@ -176,7 +174,6 @@ export default function Orderbook() {
       return;
     }
 
-    // Fallback if we only know the aggregated level from the event payload.
     upsertPriceLevel(
       toSide(cancelled.s),
       toNumber(cancelled.p),
@@ -258,14 +255,12 @@ export default function Orderbook() {
         );
       }
 
-      // First update makers already resting on the book.
       for (const event of events) {
         if (event.type === "orderFillEvent") {
           applyMakerFill(event.data);
         }
       }
 
-      // Then apply placements using net remaining quantity.
       for (const event of events) {
         if (event.type === "orderPlacedEvent") {
           applyPlacedOrder(
@@ -275,7 +270,6 @@ export default function Orderbook() {
         }
       }
 
-      // Finally apply explicit cancels.
       for (const event of events) {
         if (event.type === "OrderCancelledEvent") {
           applyCancelledOrder(event.data);
@@ -322,10 +316,11 @@ export default function Orderbook() {
         Order Book
       </div>
 
-      <div className="grid grid-cols-3 gap-2 px-3 py-2 text-[10px] font-medium text-[var(--phoenix-text-subtle)]">
+      {/* Column headers — tightened for smaller width */}
+      <div className="grid grid-cols-3 gap-1 px-3 py-1.5 text-[9px] font-medium text-[var(--phoenix-text-subtle)]">
         <div>Price</div>
-        <div className="text-right">AMOUNT SOL</div>
-        <div className="text-right">AMOUNT USDC</div>
+        <div className="text-right">SOL</div>
+        <div className="text-right">USDC</div>
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -335,7 +330,7 @@ export default function Orderbook() {
           ))}
         </div>
 
-        <div className="px-3 py-1 bg-[var(--phoenix-bg-main)] text-[10px] text-[var(--phoenix-text-subtle)]">
+        <div className="px-3 py-1 bg-[var(--phoenix-bg-main)] text-[9px] text-[var(--phoenix-text-subtle)]">
           Spread: {spread}
         </div>
 

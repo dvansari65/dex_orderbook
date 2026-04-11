@@ -80,34 +80,34 @@ function SwappingInterface() {
   const isBid = 'bid' in side
 
   return (
-    <div className="w-96 h-full rounded-2xl flex flex-col p-6" style={{ background: '#FAF8F6' }}>
-      <h2 className="text-xl font-semibold mb-6" style={{ color: "#2B1B12" }}>
+    <div className="w-full h-full rounded-2xl flex flex-col p-4" style={{ background: '#FAF8F6' }}>
+      <h2 className="text-base font-semibold mb-4" style={{ color: "#2B1B12" }}>
         Place Order
       </h2>
 
       {/* Order Type Selector */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>
+      <div className="mb-3">
+        <label className="text-xs mb-1.5 block" style={{ color: "#6F625B" }}>
           Order Type
         </label>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <button
             onClick={() => setOrderType({ limit: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors"
             style={{ background: isLimit ? "#FF7A2F" : "#F4F1EE", color: isLimit ? "white" : "#6F625B" }}
           >
             Limit
           </button>
           <button
             onClick={() => setOrderType({ postOnly: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors"
             style={{ background: isPostOnly ? "#FF7A2F" : "#F4F1EE", color: isPostOnly ? "white" : "#6F625B" }}
           >
             Post
           </button>
           <button
             onClick={() => setOrderType({ immediateOrCancel: {} })}
-            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors"
             style={{ background: isIOC ? "#FF7A2F" : "#F4F1EE", color: isIOC ? "white" : "#6F625B" }}
           >
             IOC
@@ -116,70 +116,70 @@ function SwappingInterface() {
       </div>
 
       {/* Side Selector */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-3">
         <button
           onClick={() => setSide({ bid: {} })}
-          className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+          className="flex-1 py-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5"
           style={{
             background: isBid ? "#FF7A2F" : "rgba(255, 122, 47, 0.15)",
             color: isBid ? "white" : "#FF7A2F",
             boxShadow: isBid ? "0 4px 12px rgba(255, 122, 47, 0.3)" : "none",
           }}
         >
-          <TrendingUp className="w-4 h-4" />
-          Buy
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span className="text-sm">Buy</span>
         </button>
         <button
           onClick={() => setSide({ ask: {} })}
-          className="flex-1 py-3 rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+          className="flex-1 py-2.5 rounded-lg font-semibold transition-all flex items-center justify-center gap-1.5"
           style={{
             background: !isBid ? "#DC2626" : "rgba(220, 38, 38, 0.1)",
             color: !isBid ? "white" : "#DC2626",
             boxShadow: !isBid ? "0 4px 12px rgba(220, 38, 38, 0.3)" : "none",
           }}
         >
-          <TrendingDown className="w-4 h-4" />
-          Sell
+          <TrendingDown className="w-3.5 h-3.5" />
+          <span className="text-sm">Sell</span>
         </button>
       </div>
 
       {/* Price Input */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>Price</label>
-        <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
+      <div className="mb-3">
+        <label className="text-xs mb-1.5 block" style={{ color: "#6F625B" }}>Price</label>
+        <div className="rounded-lg p-2.5" style={{ background: "#F4F1EE" }}>
           <input
             type="number"
             value={String(price)}
             onChange={(e) => setPrice(parseFloat(e.target.value))}
             placeholder="0.00"
-            className="bg-transparent text-lg font-medium outline-none w-full"
+            className="bg-transparent text-sm font-medium outline-none w-full"
             style={{ color: "#2B1B12" }}
           />
         </div>
       </div>
 
       {/* Size Input */}
-      <div className="mb-4">
-        <label className="text-sm mb-2 block" style={{ color: "#6F625B" }}>Size</label>
-        <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
+      <div className="mb-3">
+        <label className="text-xs mb-1.5 block" style={{ color: "#6F625B" }}>Size</label>
+        <div className="rounded-lg p-2.5" style={{ background: "#F4F1EE" }}>
           <input
             type="number"
             value={size}
             onChange={(e) => setSize(parseFloat(e.target.value))}
             placeholder="0.00"
-            className="bg-transparent text-lg font-medium outline-none w-full"
+            className="bg-transparent text-sm font-medium outline-none w-full"
             style={{ color: "#2B1B12" }}
           />
         </div>
       </div>
 
       {/* Total */}
-      <div className="mb-6">
-        <div className="flex justify-between text-sm mb-1" style={{ color: "#6F625B" }}>
+      <div className="mb-4">
+        <div className="flex justify-between text-xs mb-1.5" style={{ color: "#6F625B" }}>
           <span>Total</span>
         </div>
-        <div className="rounded-lg p-3" style={{ background: "#F4F1EE" }}>
-          <div className="text-lg font-semibold" style={{ color: "#2B1B12" }}>{total}</div>
+        <div className="rounded-lg p-2.5" style={{ background: "#F4F1EE" }}>
+          <div className="text-sm font-semibold" style={{ color: "#2B1B12" }}>{total}</div>
         </div>
       </div>
 
@@ -187,21 +187,21 @@ function SwappingInterface() {
       {!connected ? (
         <button
           onClick={() => setVisible(true)}
-          className="w-full font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-2"
+          className="w-full font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
           style={{
             background: 'linear-gradient(to right, #FF7A2F, #FF8F52)',
             color: 'white',
             boxShadow: '0 4px 12px rgba(255, 122, 47, 0.3)',
           }}
         >
-          <Wallet className="w-5 h-5" />
+          <Wallet className="w-4 h-4" />
           Connect Wallet
         </button>
       ) : (
         <button
           onClick={handlePlaceOrder}
           disabled={isPending || !price || !size}
-          className="w-full font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           style={{
             background: isBid
               ? 'linear-gradient(to right, #FF7A2F, #FF8F52)'
@@ -212,13 +212,13 @@ function SwappingInterface() {
               : '0 4px 12px rgba(220, 38, 38, 0.3)',
           }}
         >
-          {isPending ? 'Placing Order...' : `Place ${isBid ? 'Buy' : 'Sell'} Order`}
+          {isPending ? 'Placing...' : `Place ${isBid ? 'Buy' : 'Sell'} Order`}
         </button>
       )}
 
       {/* Connected Info */}
       {connected && publicKey && (
-        <div className="mt-4 rounded-lg p-3 text-sm" style={{ background: 'rgba(255, 122, 47, 0.15)' }}>
+        <div className="mt-3 rounded-lg p-2.5 text-xs" style={{ background: 'rgba(255, 122, 47, 0.15)' }}>
           <div className="flex justify-between items-center" style={{ color: '#6F625B' }}>
             <span>Connected:</span>
             <span className="font-mono font-medium" style={{ color: '#2B1B12' }}>
