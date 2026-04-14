@@ -3,11 +3,25 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useSocketStatus } from "@/providers/SocketProvider";
 import { WifiOff, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export const ConnectionStatus = () => {
   const isConnected = useSocketStatus();
+  const [show, setShow] = useState(true);
   const [isRetrying, setIsRetrying] = useState(false);
+
+  useEffect(() => {
+    if (!isConnected) {
+      setShow(true);
+    } else {
+      // delay hiding to prevent flicker
+      const timeout = setTimeout(() => {
+        setShow(false);
+      }, 1500); // tweak (1–2s is good)
+  
+      return () => clearTimeout(timeout);
+    }
+  }, [isConnected]);
 
   const handleRetry = () => {
     setIsRetrying(true);
@@ -16,7 +30,7 @@ export const ConnectionStatus = () => {
 
   return (
     <AnimatePresence>
-      {!isConnected && (
+      {show && (
         <motion.div
           initial={{ opacity: 0, y: -20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
