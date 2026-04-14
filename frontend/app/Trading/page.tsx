@@ -10,6 +10,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { Order } from "@/types/order";
 import TabbedOrderHistory from "@/components/tabbed-order-history";
 import TradingNavbar from "@/components/trading-navbar";
+import { ConnectionStatus } from "@/components/ui/connection-status";
 
 interface RecentTrade {
   price: number
@@ -82,6 +83,7 @@ const Trading = memo(() => {
   return (
     <div className="flex h-screen w-full flex-col bg-[var(--phoenix-bg-subtle)]">
       <TradingNavbar />
+      <ConnectionStatus />
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-2 lg:flex-row lg:overflow-hidden">
 
         {/* ── LEFT: Chart + Tabbed Order History ── */}
