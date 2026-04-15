@@ -48,7 +48,7 @@ function Navbar() {
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 sm:w-5 sm:h-5 bg-[#2B1B12] rotate-45 rounded-sm flex-shrink-0" />
             <span className="text-[#2B1B12] font-semibold tracking-wide text-sm sm:text-base">
-              PHOENIX
+              VELOX
             </span>
           </div>
 

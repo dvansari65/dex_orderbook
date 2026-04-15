@@ -221,7 +221,7 @@ export default function Home() {
             font-medium text-[#2B1B12] mb-4 sm:mb-6
           ">
             Start trading on
-            <br />Phoenix today
+            <br />Velox today
           </h2>
 
           <p className="
@@ -236,7 +236,9 @@ export default function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-            <button className="
+            <button
+              onClick={handleRoute}
+              className="
               group relative bg-[#FF7A2F] text-white
               w-full sm:w-auto
               px-8 py-3.5 sm:py-4

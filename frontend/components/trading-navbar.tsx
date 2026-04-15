@@ -103,7 +103,7 @@ export default function TradingNavbar() {
               <div className="h-3.5 w-3.5 rotate-45 rounded-sm bg-[var(--phoenix-text-primary)]" />
               <div>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--phoenix-text-subtle)]">
-                  Phoenix
+                  Velox
                 </p>
                 <p className="text-sm font-semibold text-[var(--phoenix-text-primary)]">
                   Orderbook

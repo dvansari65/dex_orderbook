@@ -4,7 +4,7 @@ import { AppProvider } from "@/components/app-provider";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Phoenix Dex Orderbook",
+  title: "Velox Dex Orderbook",
   description: "Realtime devnet orderbook and candle chart",
 };
 
