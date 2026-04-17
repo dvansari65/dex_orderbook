@@ -4,12 +4,16 @@ import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import { EventListener } from "./listener";
 import { Conversion } from "./utils/conversion";
-import { Market } from "../types/market";
 import { snapshotOfCandle, handleFillEvent } from "../service/candle";
 import { getOrderHistory } from "../service/orderHistory";
 import { createOrder } from "../service/orderHistory";
 import parseOrderFillEvent from "../helper/parseOrderFillEventData";
 import { loadIndexerEnv, resolveDatabaseUrl } from "../lib/env";
+import {
+  fetchMarketStateForSnapshot,
+  getMarketSnapshot,
+  invalidateMarketSnapshot,
+} from "./service/marketSnapshot";
 
 loadIndexerEnv();
 
@@ -59,46 +63,12 @@ const activeConnections     = new Map<string, Socket>();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fetchOrderBook = async (
-  marketState: Market,
-  conversion: Conversion
-): Promise<{
-  asks: Array<{ price: number; quantity: number; orderId: number }>;
-  bids: Array<{ price: number; quantity: number; orderId: number }>;
-}> => {
-  if (!marketState?.asks || !marketState?.bids) {
-    console.error("❌ Invalid market state — missing asks or bids");
-    return { asks: [], bids: [] };
-  }
-
-  const [askSlabData, bidSlabData] = await Promise.all([
-    listener.fetchAskSlabState(marketState.asks.toString()),
-    listener.fetchBidSlabState(marketState.bids.toString()),
-  ]);
-
-  const convertNodes = (nodes: any[]) =>
-    nodes
-      .filter((node) => node?.price)
-      .map((node) => conversion.convertNode(node));
-
-  return {
-    asks: askSlabData?.nodes ? convertNodes(askSlabData.nodes) : [],
-    bids: bidSlabData?.nodes ? convertNodes(bidSlabData.nodes) : [],
-  };
-};
-
-const formatMarketMetadata = (marketState: Market) => ({
-  marketPubkey: MARKET_PUBKEY,
-  baseLotSize:  marketState.baseLotSize,
-  quoteLotSize: marketState.quoteLotSize,
-  baseMint:     marketState.baseMint?.toString(),
-  quoteMint:    marketState.quoteMint?.toString(),
-});
-
 // ─── Event Listener ───────────────────────────────────────────────────────────
 
-const startEventListener = async (marketState: Market) => {
+const startEventListener = async () => {
   if (eventCleanup) return; // already running
+
+  let cachedMarketState = await fetchMarketStateForSnapshot(listener, MARKET_PUBKEY);
 
   eventCleanup = await listener.start(async (events) => {
     const payloads = [];
@@ -112,10 +82,18 @@ const startEventListener = async (marketState: Market) => {
       console.log("📨 Event received:", event.name);
 
       try {
-        if (event.name === "orderPlacedEvent") {
-          const conversion = new Conversion(marketState);
+        if (event.name === "orderPlacedEvent" || event.name === "OrderPlacedEvent") {
+          if (!cachedMarketState) {
+            cachedMarketState = await fetchMarketStateForSnapshot(listener, MARKET_PUBKEY);
+          }
+          if (!cachedMarketState) {
+            console.error("❌ Market not found while handling orderPlacedEvent");
+            continue;
+          }
+          const conversion = new Conversion(cachedMarketState);
           const converted  = conversion.convertEvent(event.data);
           await createOrder(event.data);
+          await invalidateMarketSnapshot(MARKET_PUBKEY);
           payloads.push({
             type: "orderPlacedEvent",
             data: {
@@ -130,7 +108,9 @@ const startEventListener = async (marketState: Market) => {
 
         if (
           event.name === "orderFillEvent" ||
-          event.name === "orderPartialFillEvent"
+          event.name === "OrderFillEvent" ||
+          event.name === "orderPartialFillEvent" ||
+          event.name === "OrderPartialFillEvent"
         ) {
           const orderFilledEventData = parseOrderFillEvent(event);
           if (!orderFilledEventData) {
@@ -144,6 +124,7 @@ const startEventListener = async (marketState: Market) => {
             io.emit("error", { message: "Failed to create candle for fill event" });
             continue;
           }
+          await invalidateMarketSnapshot(MARKET_PUBKEY);
           io.emit("candle:filled", {
             candles:   fillResult.candles,
             volumes:   fillResult.volumes,
@@ -151,9 +132,17 @@ const startEventListener = async (marketState: Market) => {
           });
         }
 
-        if (event.name === "OrderCancelledEvent") {
-          const conversion = new Conversion(marketState);
+        if (event.name === "orderCancelledEvent" || event.name === "OrderCancelledEvent") {
+          if (!cachedMarketState) {
+            cachedMarketState = await fetchMarketStateForSnapshot(listener, MARKET_PUBKEY);
+          }
+          if (!cachedMarketState) {
+            console.error("❌ Market not found while handling OrderCancelledEvent");
+            continue;
+          }
+          const conversion = new Conversion(cachedMarketState);
           const converted  = conversion.convertEvent(event.data);
+          await invalidateMarketSnapshot(MARKET_PUBKEY);
           payloads.push({
             type: "OrderCancelledEvent",
             data: {
@@ -186,27 +175,12 @@ io.on("connection", async (socket: Socket) => {
   activeConnections.set(socket.id, socket);
 
   try {
-    const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
-    if (!marketState) {
-      socket.emit("error", { message: "Market not found", timestamp: Date.now() });
-      socket.disconnect();
-      return;
-    }
+    const snapshot = await getMarketSnapshot(listener, MARKET_PUBKEY);
+    socket.emit("snapshot", snapshot);
 
-    const conversion = new Conversion(marketState);
-
-    const [{ asks, bids }, candles] = await Promise.all([
-      fetchOrderBook(marketState, conversion),
-      snapshotOfCandle("1d", MARKET_PUBKEY),
-    ]);
-
-    socket.emit("snapshot", {
-      market:    formatMarketMetadata(marketState),
-      orderbook: { asks, bids },
-      candles:   { candles: candles.candles, volumeData: candles.volumeData },
-    });
-
-    console.log(`📸 Snapshot sent to ${socket.id}: ${asks.length} asks, ${bids.length} bids`);
+    console.log(
+      `📸 Snapshot sent to ${socket.id}: ${snapshot.orderbook.asks.length} asks, ${snapshot.orderbook.bids.length} bids`
+    );
 
     socket.on("user-pubkey", async (pubkey: string) => {
       const orderHistory = await getOrderHistory(pubkey, MARKET_PUBKEY);
@@ -225,7 +199,7 @@ io.on("connection", async (socket: Socket) => {
     });
 
     // Start event listener once (shared across all connections)
-    await startEventListener(marketState);
+    await startEventListener();
 
     socket.on("disconnect", () => {
       console.log(`❌ Client disconnected: ${socket.id}`);
@@ -254,18 +228,12 @@ app.get("/health", async (_req, res) => {
 
 app.get("/orderbook", async (_req, res) => {
   try {
-    const marketState = await listener.fetchMarketState(MARKET_PUBKEY);
-    if (!marketState) {
+    const snapshot = await getMarketSnapshot(listener, MARKET_PUBKEY);
+    res.json({ ...snapshot, timestamp: Date.now() });
+  } catch (error: any) {
+    if (error?.message === "Market not found") {
       return res.status(404).json({ error: "Market not found" });
     }
-    const conversion    = new Conversion(marketState);
-    const { asks, bids } = await fetchOrderBook(marketState, conversion);
-    res.json({
-      market:    formatMarketMetadata(marketState),
-      orderbook: { asks, bids },
-      timestamp: Date.now(),
-    });
-  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });

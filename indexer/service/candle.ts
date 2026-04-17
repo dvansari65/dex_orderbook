@@ -5,6 +5,12 @@ import { CandleSnapshot } from "../types/service";
 import {formatTimeForResolution} from "../helper/formatTimeForReso"
 import {updateOrdersOnFill} from "../helper/updateOrderOnFill"
 import { isDatabaseConnectivityError } from "../lib/env";
+import {
+  getCandleSnapshotKey,
+  getCandleSnapshotTtlSeconds,
+  invalidateCandleSnapshots,
+} from "../src/service/candleCache";
+import { jsonCache } from "../src/cache/jsonCache";
 
 const PRICE_DISPLAY_DIVISOR = 1_000;
 const VOLUME_DISPLAY_DIVISOR = 1_000;
@@ -16,6 +22,12 @@ interface FillEventResult {
   volumes: Partial<Record<(typeof RESOLUTIONS)[number], number>>;
   timestamp: string; // ISO string for time
 }
+
+type CandleSnapshotResponse = {
+  candles: CandleSnapshot[],
+  volumeData: { time: string | number, value: number }[]
+};
+
 export const handleFillEvent = async (
   event: FillEvent, 
   sign: string
@@ -125,6 +137,8 @@ export const handleFillEvent = async (
       timestamp: tradeDate.toISOString(),
     };
 
+    await invalidateCandleSnapshots(marketAddress);
+
     return result;
   } catch (error) {
     if (isDatabaseConnectivityError(error)) {
@@ -137,13 +151,10 @@ export const handleFillEvent = async (
   }
 }
 
-export const snapshotOfCandle = async (
+const fetchCandleSnapshotFromDatabase = async (
   resolution: string,
   marketPubKey: string
-): Promise<{
-  candles: CandleSnapshot[],
-  volumeData: { time: string | number, value: number }[]
-}> => {
+): Promise<CandleSnapshotResponse> => {
   try {
     if( typeof marketPubKey !== "string" || !marketPubKey || !resolution){
       console.error("Market key not provided!");
@@ -184,3 +195,13 @@ export const snapshotOfCandle = async (
     return { candles: [], volumeData: [] };
   }
 }
+
+export const snapshotOfCandle = async (
+  resolution: string,
+  marketPubKey: string
+): Promise<CandleSnapshotResponse> =>
+  jsonCache.getOrLoad(
+    getCandleSnapshotKey(marketPubKey, resolution),
+    getCandleSnapshotTtlSeconds(),
+    () => fetchCandleSnapshotFromDatabase(resolution, marketPubKey)
+  );

@@ -47,12 +47,14 @@ Key responsibilities:
 * Express + Socket.IO
 * Prisma ORM
 * PostgreSQL
+* Redis for snapshot caching
 
 
 ## Requirements
 
 * Node.js 18+
 * PostgreSQL database
+* Redis instance for shared snapshot caching
 * Access to a Solana RPC endpoint
 * Program ID and market public key
 
@@ -68,6 +70,9 @@ PROGRAM_ID=<your_program_id>
 MARKET_PUBKEY=<your_market_pubkey>
 PORT=3001
 DATABASE_URL=postgresql://user:password@localhost:5432/indexer
+REDIS_URL=redis://127.0.0.1:6379
+MARKET_SNAPSHOT_TTL_SECONDS=5
+CANDLE_SNAPSHOT_TTL_SECONDS=5
 ```
 
 ---
@@ -168,6 +173,8 @@ The service handles `SIGINT` and `SIGTERM`:
 * Parallel slab fetching for faster snapshots
 * Database upserts prevent duplicate trades
 * Socket.IO broadcasting scales with connected clients
+* Market snapshots and candle snapshots are cached in Redis
+* Fill events invalidate cached snapshots after persistence so reads stay fresh
 
 ---
 
