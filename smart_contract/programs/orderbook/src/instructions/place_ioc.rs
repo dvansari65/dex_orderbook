@@ -1,4 +1,9 @@
-use crate::{assets::{lock_ask_funds, lock_bid_funds}, error::{MarketError, OrderError, TraderEntryError}, helpers::{get_next_order_id, try_match_ioc, update_trader_entry}, *};
+use crate::{
+    assets::{lock_ask_funds, lock_bid_funds},
+    error::{MarketError, OrderError, TraderEntryError},
+    helpers::{get_next_order_id, try_match_ioc, update_trader_entry},
+    *,
+};
 use anchor_lang::prelude::*;
 
 pub fn handler(

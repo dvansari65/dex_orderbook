@@ -8,9 +8,9 @@ pub mod calculate;
 pub mod error;
 pub mod events;
 pub mod helpers;
+pub mod instructions;
 pub mod state;
 pub mod states;
-pub mod instructions;
 use state::*;
 
 #[program]
@@ -87,11 +87,7 @@ pub mod orderbook {
         )
     }
 
-    pub fn cancel_order(
-        ctx: Context<CancelOrder>,
-        order_id: u64,
-        side: Side,
-    ) -> Result<()> {
+    pub fn cancel_order(ctx: Context<CancelOrder>, order_id: u64, side: Side) -> Result<()> {
         instructions::cancel_order::handler(ctx, order_id, side)
     }
 }

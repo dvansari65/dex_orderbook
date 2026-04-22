@@ -1,4 +1,8 @@
-use crate::{assets::{unlock_ask_funds, unlock_bid_funds}, events::{EventParams, dispatch_event}, *};
+use crate::{
+    assets::{unlock_ask_funds, unlock_bid_funds},
+    events::{dispatch_event, EventParams},
+    *,
+};
 use anchor_lang::prelude::*;
 
 pub fn handler(ctx: Context<CancelOrder>, order_id: u64, side: Side) -> Result<()> {
