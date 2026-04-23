@@ -1,17 +1,15 @@
 use crate::{
     assets::{lock_ask_funds, lock_bid_funds},
     error::{MarketError, OrderError, TraderEntryError},
-    helpers::{get_next_order_id, try_match_ioc, update_trader_entry},
+    helpers::{try_match_ioc, update_trader_entry},
     *,
 };
-use anchor_lang::prelude::*;
 
 pub fn handler(
     ctx: Context<PlaceIOCOrder>,
     base_qty: u64,
     price: u64,
     order_type: OrderType,
-    client_order_id: u64,
     side: Side,
 ) -> Result<()> {
     let market = &mut ctx.accounts.market;
@@ -26,9 +24,6 @@ pub fn handler(
         base_qty >= market.min_order_size,
         MarketError::MarketOrderSizeError
     );
-
-    let market_key = market.key();
-    let order_id = get_next_order_id(market)?;
 
     let base_lots = base_qty / market.base_lot_size;
     let quote_lots = price
