@@ -56,7 +56,6 @@ pub mod orderbook {
         base_qty: u64,
         price_in_raw_units: u64,
         order_type: OrderType,
-        client_order_id: u64,
         side: Side,
     ) -> Result<()> {
         instructions::place_ioc::handler(
@@ -64,7 +63,6 @@ pub mod orderbook {
             base_qty,
             price_in_raw_units,
             order_type,
-            client_order_id,
             side,
         )
     }
